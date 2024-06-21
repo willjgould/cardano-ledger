@@ -202,6 +202,9 @@ data ConwayUtxoPredFailure era
   | -- | TxIns that appear in both inputs and reference inputs
     BabbageNonDisjointRefInputs
       !(NonEmpty (TxIn (EraCrypto era)))
+  | CheckRqTxFailure
+  | CheckLinearFailure
+  | MoreThanOneInvalidTransaction
   deriving (Generic)
 
 type instance EraRuleFailure "UTXO" (ConwayEra c) = ConwayUtxoPredFailure (ConwayEra c)
@@ -463,6 +466,9 @@ instance
       IncorrectTotalCollateralField c1 c2 -> Sum IncorrectTotalCollateralField 20 !> To c1 !> To c2
       BabbageOutputTooSmallUTxO x -> Sum BabbageOutputTooSmallUTxO 21 !> To x
       BabbageNonDisjointRefInputs x -> Sum BabbageNonDisjointRefInputs 22 !> To x
+      CheckRqTxFailure -> Sum CheckRqTxFailure 23
+      CheckLinearFailure -> Sum CheckLinearFailure 24
+      MoreThanOneInvalidTransaction -> Sum MoreThanOneInvalidTransaction 25
 
 instance
   ( Era era

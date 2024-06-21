@@ -83,8 +83,6 @@ instance Crypto c => EraTx (BabbageEra c) where
       <*> pure valid
       <*> pure (fmap upgradeTxAuxData aux)
 
--- <*> pure mempty -- TODO WG
-
 instance Crypto c => AlonzoEraTx (BabbageEra c) where
   {-# SPECIALIZE instance AlonzoEraTx (BabbageEra StandardCrypto) #-}
 

@@ -16,12 +16,13 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Cardano.Ledger.Conway.Rules.Zone where
 
 import Cardano.Ledger.Alonzo.Core (AlonzoEraTx)
-import Cardano.Ledger.Alonzo.Tx (IsValid (IsValid))
+import Cardano.Ledger.Alonzo.Tx (IsValid (IsValid), totExUnits)
 import Cardano.Ledger.BaseTypes (
   ShelleyBase,
   epochInfo,
@@ -90,6 +91,7 @@ import Cardano.Ledger.Alonzo.UTxO (AlonzoEraUTxO, AlonzoScriptsNeeded)
 import Cardano.Ledger.Babbage.Collateral (collAdaBalance, collOuts)
 import Cardano.Ledger.Babbage.Rules (BabbageUtxoPredFailure, BabbageUtxowPredFailure)
 import Cardano.Ledger.Coin (Coin (..), DeltaCoin (DeltaCoin))
+import Cardano.Ledger.Conway.Core (ppMaxTxExUnitsL)
 import Cardano.Ledger.Conway.Rules.Cert (ConwayCertPredFailure)
 import Cardano.Ledger.Conway.Rules.Certs (ConwayCertsPredFailure)
 import Cardano.Ledger.Conway.Rules.Deleg (ConwayDelegPredFailure)
@@ -106,6 +108,7 @@ import Cardano.Ledger.Plutus (
   ScriptFailure (scriptFailurePlutus),
   ScriptResult (..),
  )
+import Cardano.Ledger.Plutus.ExUnits (pointWiseExUnits)
 import Cardano.Ledger.Rules.ValidationMode (Test, runTestOnSignal)
 import Cardano.Ledger.Shelley.LedgerState (updateStakeDistribution)
 import Cardano.Ledger.Shelley.Rules (
@@ -286,15 +289,22 @@ zoneTransition =
               , txs :: Seq (Tx era)
               )
           ) -> do
+        {-   totExunits tx ≤ maxTxExUnits pp
+              runTest $ Alonzo.validateExUnitsTooBigUTxO pp tx -}
         runTestOnSignal $ validateMaxTxSizeUTxO pParams (Foldable.toList txs)
-        if all chkIsValid txs
-          && all (chkRqTx txs) txs
-          && chkLinear (Foldable.toList txs)
-          then -- ZONE-V
-
+        if all chkIsValid txs -- ZONE-V
+          then do
+            -- TODO WG: make sure `runTestOnSignal` is correct rather than `runTest`
+            runTestOnSignal $ failureUnless (all (chkRqTx txs) txs) CheckRqTxFailure
+            runTestOnSignal $ failureUnless (chkLinear (Foldable.toList txs)) CheckLinearFailure
+            runTestOnSignal $ validateExUnitsTooBigUTxO pParams (Foldable.toList txs)
             trans @(EraRule "LEDGERS" era) $
               TRC (ConwayLedgersEnv slotNo ixRange pParams accountState, LedgerState utxoState certState, txs)
-          else -- ZONE-N
+          else -- Add failure condition on anything other than: exactly 1 invalid (last tx)
+          -- ZONE-N
+          do
+            runTestOnSignal $
+              failureUnless (chkExactlyLastInvalid (Foldable.toList txs)) MoreThanOneInvalidTransaction
             conwayEvalScriptsTxInvalid @era
   where
     chkLinear :: [Tx era] -> Bool
@@ -330,6 +340,22 @@ zoneTransition =
       where
         maxTxSize = toInteger (pp ^. ppMaxTxSizeL)
         zoneSize = totSizeZone z
+    validateExUnitsTooBigUTxO ::
+      PParams era ->
+      [Tx era] ->
+      Test (ConwayUtxoPredFailure era)
+    validateExUnitsTooBigUTxO pp txs =
+      failureUnless (pointWiseExUnits (<=) totalExUnits maxTxExUnits) $
+        ExUnitsTooBigUTxO maxTxExUnits totalExUnits
+      where
+        maxTxExUnits = pp ^. ppMaxTxExUnitsL
+        -- This sums up the ExUnits for all embedded Plutus Scripts anywhere in the zone:
+        totalExUnits = Foldable.foldl' (<>) mempty $ fmap totExUnits txs
+    -- TODO WG: This can probably be rolled in with the main check in the if expression
+    chkExactlyLastInvalid :: [Tx era] -> Bool
+    chkExactlyLastInvalid txs = case reverse txs of
+      (l : txs') -> (l ^. isValidTxL == IsValid False) && all ((== IsValid True) . (^. isValidTxL)) txs'
+      [] -> True
 
 -- data ConwayUtxosEvent era
 --   = TotalDeposits (SafeHash (EraCrypto era) EraIndependentTxBody) Coin
@@ -371,7 +397,8 @@ conwayEvalScriptsTxInvalid =
         , txs :: Seq (Tx era)
         ) <-
       judgmentContext
-    let tx = head $ Foldable.toList txs -- TODO WG use safe head
+    -- TODO WG: Is the list last first or last...last (Probably last last)
+    let tx = last (Foldable.toList txs) -- TODO WG use safe head
         txBody = tx ^. bodyTxL
 
     -- TRC (UtxoEnv _ pp _, us@(UTxOState utxo _ _ fees _ _ _), tx) <- judgmentContext
@@ -381,6 +408,10 @@ conwayEvalScriptsTxInvalid =
 
     () <- pure $! traceEvent invalidBegin ()
 
+    {- TODO WG:
+      I think you actually need a different function that collects Plutus scripts from
+      ALL transactions, but just using the collateral for the last one? Or evals scripts from ALL txs? Or something like that?
+      Basically, yes, the last TX is the one that failed, but we need to collect collat for all the other ones, too. -}
     case collectPlutusScriptsWithContext ei sysSt pp tx utxo of
       Right sLst ->
         {- sLst := collectTwoPhaseScriptInputs pp tx utxo -}
