@@ -77,6 +77,7 @@ import Cardano.Ledger.Conway.Governance (
  )
 import Cardano.Ledger.Conway.Plutus.Context (
   ConwayEraPlutusTxInfo (toPlutusChangedParameters),
+  ConwayEraPlutusTxInfoV4 (toPlutusChangedParametersV4),
   conwayPParamMap,
   pparamUpdateFromData,
   pparamUpdateToData,
@@ -113,6 +114,7 @@ import Control.Monad (unless, when, zipWithM)
 import Data.Aeson (ToJSON (..), (.=))
 import Data.Foldable as F (Foldable (..))
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromJust)
 import qualified Data.OSet.Strict as OSet
 import qualified Data.Set as Set
 import GHC.Generics hiding (to)
@@ -121,6 +123,9 @@ import NoThunks.Class (NoThunks)
 import qualified PlutusLedgerApi.V1 as PV1
 import qualified PlutusLedgerApi.V2 as PV2
 import qualified PlutusLedgerApi.V3 as PV3
+import qualified PlutusLedgerApi.V4 as PV4
+import qualified PlutusTx.AssocMap as PMap
+import qualified PlutusTx.Eq
 
 instance Crypto c => EraPlutusContext (ConwayEra c) where
   type ContextError (ConwayEra c) = ConwayContextError (ConwayEra c)
@@ -129,6 +134,7 @@ instance Crypto c => EraPlutusContext (ConwayEra c) where
     ConwayPlutusV1 p -> mkPlutusLanguageContext p
     ConwayPlutusV2 p -> mkPlutusLanguageContext p
     ConwayPlutusV3 p -> mkPlutusLanguageContext p
+    ConwayPlutusV4 p -> mkPlutusLanguageContext p
 
 data ConwayContextError era
   = BabbageContextError !(BabbageContextError era)
@@ -467,8 +473,20 @@ instance Crypto c => EraPlutusTxInfo 'PlutusV3 (ConwayEra c) where
     where
       txBody = tx ^. bodyTxL
 
-  toPlutusScriptContext proxy txInfo scriptPurpose =
-    PV3.ScriptContext txInfo <$> toPlutusScriptPurpose proxy scriptPurpose
+  toPlutusScriptContext proxy txInfo scriptPurpose = do
+    let redeemers :: PMap.Map PV3.ScriptPurpose PV3.Redeemer = PV3.txInfoRedeemers txInfo
+    purpose <- toPlutusScriptPurpose proxy scriptPurpose
+    let redeemer = fromJust $ PMap.lookup purpose redeemers -- TODO WG obviously partial
+    pure $ PV3.ScriptContext txInfo redeemer (fromScriptPurpose purpose)
+
+fromScriptPurpose :: PV3.ScriptPurpose -> PV3.ScriptInfo
+fromScriptPurpose = \case
+  PV3.Minting cs -> PV3.MintingScript cs
+  PV3.Spending txOutRef -> PV3.SpendingScript txOutRef Nothing
+  PV3.Rewarding cred -> PV3.RewardingScript cred
+  PV3.Certifying index txCert -> PV3.CertifyingScript index txCert
+  PV3.Voting voter -> PV3.VotingScript voter
+  PV3.Proposing index proposal -> PV3.ProposingScript index proposal
 
 transTxId :: TxId c -> PV3.TxId
 transTxId txId = PV3.TxId (transSafeHash (unTxId txId))
@@ -653,8 +671,241 @@ transProtVer :: ProtVer -> PV3.ProtocolVersion
 transProtVer (ProtVer major minor) =
   PV3.ProtocolVersion (toInteger (getVersion64 major)) (toInteger minor)
 
+instance Crypto c => EraPlutusTxInfo 'PlutusV4 (ConwayEra c) where
+  toPlutusTxCert _ = pure . transTxCertV4
+
+  toPlutusScriptPurpose = transScriptPurposeV4
+
+  toPlutusTxInfo proxy pp epochInfo systemStart utxo tx = do
+    timeRange <- Alonzo.transValidityInterval pp epochInfo systemStart (txBody ^. vldtTxBodyL)
+    -- TODO WG: realizedInputs. Add realizedFulfills here. Put them in PV4 TxInfo.
+    inputs <- mapM (transTxInInfoV4 utxo) (Set.toList (txBody ^. inputsTxBodyL))
+    refInputs <- mapM (transTxInInfoV4 utxo) (Set.toList (txBody ^. referenceInputsTxBodyL))
+    outputs <-
+      zipWithM
+        (Babbage.transTxOutV2 . TxOutFromOutput)
+        [minBound ..]
+        (F.toList (txBody ^. outputsTxBodyL))
+    txCerts <- Alonzo.transTxBodyCerts proxy txBody
+    plutusRedeemers <- Babbage.transTxRedeemers proxy tx
+    pure
+      PV4.TxInfo
+        { PV4.txInfoInputs = inputs
+        , PV4.txInfoOutputs = outputs
+        , PV4.txInfoReferenceInputs = refInputs
+        , PV4.txInfoFee = transCoinToLovelace (txBody ^. feeTxBodyL)
+        , PV4.txInfoMint = Alonzo.transMultiAsset (txBody ^. mintTxBodyL)
+        , PV4.txInfoTxCerts = txCerts
+        , PV4.txInfoWdrl = transTxBodyWithdrawals txBody
+        , PV4.txInfoValidRange = timeRange
+        , PV4.txInfoSignatories = Alonzo.transTxBodyReqSignerHashes txBody
+        , PV4.txInfoRedeemers = plutusRedeemers
+        , PV4.txInfoData = PV3.unsafeFromList $ Alonzo.transTxWitsDatums (tx ^. witsTxL)
+        , PV4.txInfoId = transTxBodyId txBody
+        , PV4.txInfoVotes = transVotingProceduresV4 (txBody ^. votingProceduresTxBodyL)
+        , PV4.txInfoProposalProcedures =
+            map (transProposalV4 proxy) $ toList (txBody ^. proposalProceduresTxBodyL)
+        , PV4.txInfoCurrentTreasuryAmount =
+            strictMaybe Nothing (Just . transCoinToLovelace) $ txBody ^. currentTreasuryValueTxBodyL
+        , PV4.txInfoTreasuryDonation =
+            case txBody ^. treasuryDonationTxBodyL of
+              Coin 0 -> Nothing
+              coin -> Just $ transCoinToLovelace coin
+        , PV4.txInfoFulfills = undefined
+        , PV4.txInfoRequests = undefined
+        , PV4.txInfoRequiredTxs = undefined
+        }
+    where
+      txBody = tx ^. bodyTxL
+
+  toPlutusScriptContext proxy txInfo scriptPurpose = do
+    let redeemers :: PMap.Map PV4.ScriptPurpose PV4.Redeemer = PV4.txInfoRedeemers txInfo
+    purpose <- toPlutusScriptPurpose proxy scriptPurpose
+    let redeemer = fromJust $ PMap.lookup purpose redeemers -- TODO WG obviously partial
+    pure $ PV4.ScriptContext txInfo redeemer (fromScriptPurposeV4 purpose)
+
+-- | Given a TxIn, look it up in the UTxO. If it exists, translate it to the V4 context
+transTxInInfoV4 ::
+  forall era.
+  ( Inject (BabbageContextError era) (ContextError era)
+  , Value era ~ MaryValue (EraCrypto era)
+  , BabbageEraTxOut era
+  ) =>
+  UTxO era ->
+  TxIn (EraCrypto era) ->
+  Either (ContextError era) PV4.TxInInfo
+transTxInInfoV4 utxo txIn = do
+  txOut <- left (inject . AlonzoContextError @era) $ Alonzo.transLookupTxOut utxo txIn
+  plutusTxOut <- transTxOutV2 (TxOutFromInput txIn) txOut
+  Right (PV4.TxInInfo (transTxIn txIn) plutusTxOut)
+
+fromScriptPurposeV4 :: PV4.ScriptPurpose -> PV4.ScriptInfo
+fromScriptPurposeV4 = \case
+  PV4.Minting cs -> PV4.MintingScript cs
+  PV4.Spending txOutRef -> PV4.SpendingScript txOutRef Nothing
+  PV4.Rewarding cred -> PV4.RewardingScript cred
+  PV4.Certifying index txCert -> PV4.CertifyingScript index txCert
+  PV4.Voting voter -> PV4.VotingScript voter
+  PV4.Proposing index proposal -> PV4.ProposingScript index proposal
+
+transTxCertV4 :: ConwayEraTxCert era => TxCert era -> PV4.TxCert
+transTxCertV4 = \case
+  RegPoolTxCert PoolParams {ppId, ppVrf} ->
+    PV4.TxCertPoolRegister (transKeyHash ppId) (PV4.PubKeyHash (PV4.toBuiltin (hashToBytes ppVrf)))
+  RetirePoolTxCert poolId retireEpochNo ->
+    PV4.TxCertPoolRetire (transKeyHash poolId) (transEpochNo retireEpochNo)
+  RegTxCert stakeCred ->
+    PV4.TxCertRegStaking (transCred stakeCred) Nothing
+  UnRegTxCert stakeCred ->
+    PV4.TxCertUnRegStaking (transCred stakeCred) Nothing
+  RegDepositTxCert stakeCred deposit ->
+    PV4.TxCertRegStaking (transCred stakeCred) (Just (transCoinToLovelace deposit))
+  UnRegDepositTxCert stakeCred refund ->
+    PV4.TxCertUnRegStaking (transCred stakeCred) (Just (transCoinToLovelace refund))
+  DelegTxCert stakeCred delegatee ->
+    PV4.TxCertDelegStaking (transCred stakeCred) (transDelegateeV4 delegatee)
+  RegDepositDelegTxCert stakeCred delegatee deposit ->
+    PV4.TxCertRegDeleg (transCred stakeCred) (transDelegateeV4 delegatee) (transCoinToLovelace deposit)
+  AuthCommitteeHotKeyTxCert coldCred hotCred ->
+    PV4.TxCertAuthHotCommittee (transColdCommitteeCredV4 coldCred) (transHotCommitteeCredV4 hotCred)
+  ResignCommitteeColdTxCert coldCred _anchor ->
+    PV4.TxCertResignColdCommittee (transColdCommitteeCredV4 coldCred)
+  RegDRepTxCert drepCred deposit _anchor ->
+    PV4.TxCertRegDRep (transDRepCredV4 drepCred) (transCoinToLovelace deposit)
+  UnRegDRepTxCert drepCred refund ->
+    PV4.TxCertUnRegDRep (transDRepCredV4 drepCred) (transCoinToLovelace refund)
+  UpdateDRepTxCert drepCred _anchor ->
+    PV4.TxCertUpdateDRep (transDRepCredV4 drepCred)
+
+transDRepCredV4 :: Credential 'DRepRole c -> PV4.DRepCredential
+transDRepCredV4 = PV4.DRepCredential . transCred
+
+transColdCommitteeCredV4 :: Credential 'ColdCommitteeRole c -> PV4.ColdCommitteeCredential
+transColdCommitteeCredV4 = PV4.ColdCommitteeCredential . transCred
+
+transHotCommitteeCredV4 :: Credential 'HotCommitteeRole c -> PV4.HotCommitteeCredential
+transHotCommitteeCredV4 = PV4.HotCommitteeCredential . transCred
+
+transDelegateeV4 :: Delegatee c -> PV4.Delegatee
+transDelegateeV4 = \case
+  DelegStake poolId -> PV4.DelegStake (transKeyHash poolId)
+  DelegVote drep -> PV4.DelegVote (transDRepV4 drep)
+  DelegStakeVote poolId drep -> PV4.DelegStakeVote (transKeyHash poolId) (transDRepV4 drep)
+
+transDRepV4 :: DRep c -> PV4.DRep
+transDRepV4 = \case
+  DRepCredential drepCred -> PV4.DRep (transDRepCredV4 drepCred)
+  DRepAlwaysAbstain -> PV4.DRepAlwaysAbstain
+  DRepAlwaysNoConfidence -> PV4.DRepAlwaysNoConfidence
+
+-- | In Conway we have `Anchor`s in some certificates and all proposals. However, because
+-- we do not translate anchors to plutus context, it is not always possible to deduce
+-- which item the script purpose is responsible for, without also including the index for
+-- that item. For this reason starting with PlutusV3, besides the item, `PV3.Certifying`
+-- and `PV3.Proposing` also have an index. Moreover, other script purposes rely on Ledger
+-- `Ord` instances for types that dictate the order, so it might not be a good idea to pass
+-- that information to Plutus for those purposes.
+transScriptPurposeV4 ::
+  (ConwayEraPlutusTxInfoV4 l era, PlutusTxCert l ~ PV4.TxCert) =>
+  proxy l ->
+  ConwayPlutusPurpose AsIxItem era ->
+  Either (ContextError era) PV4.ScriptPurpose
+transScriptPurposeV4 proxy = \case
+  ConwaySpending (AsIxItem _ txIn) -> pure $ PV4.Spending (transTxIn txIn)
+  ConwayMinting (AsIxItem _ policyId) -> pure $ PV4.Minting (Alonzo.transPolicyID policyId)
+  ConwayCertifying (AsIxItem ix txCert) ->
+    PV4.Certifying (toInteger ix) <$> toPlutusTxCert proxy txCert
+  ConwayRewarding (AsIxItem _ rewardAccount) -> pure $ PV4.Rewarding (transRewardAccount rewardAccount)
+  ConwayVoting (AsIxItem _ voter) -> pure $ PV4.Voting (transVoterV4 voter)
+  ConwayProposing (AsIxItem ix proposal) ->
+    pure $ PV4.Proposing (toInteger ix) (transProposalV4 proxy proposal)
+
+transVoterV4 :: Voter c -> PV4.Voter
+transVoterV4 = \case
+  CommitteeVoter cred -> PV4.CommitteeVoter $ PV4.HotCommitteeCredential $ transCred cred
+  DRepVoter cred -> PV4.DRepVoter $ PV4.DRepCredential $ transCred cred
+  StakePoolVoter keyHash -> PV4.StakePoolVoter $ transKeyHash keyHash
+
+transGovActionIdV4 :: GovActionId c -> PV4.GovernanceActionId
+transGovActionIdV4 GovActionId {gaidTxId, gaidGovActionIx} =
+  PV4.GovernanceActionId
+    { PV4.gaidTxId = transTxId gaidTxId
+    , PV4.gaidGovActionIx = toInteger $ unGovActionIx gaidGovActionIx
+    }
+
+transGovActionV4 ::
+  ConwayEraPlutusTxInfoV4 l era => proxy l -> GovAction era -> PV4.GovernanceAction
+transGovActionV4 proxy = \case
+  ParameterChange pGovActionId ppu govPolicy ->
+    PV4.ParameterChange
+      (transPrevGovActionId pGovActionId)
+      (toPlutusChangedParametersV4 proxy ppu)
+      (transGovPolicy govPolicy)
+  HardForkInitiation pGovActionId protVer ->
+    PV4.HardForkInitiation
+      (transPrevGovActionId pGovActionId)
+      (transProtVerV4 protVer)
+  TreasuryWithdrawals withdrawals govPolicy ->
+    PV4.TreasuryWithdrawals
+      (transMap transRewardAccount transCoinToLovelace withdrawals)
+      (transGovPolicy govPolicy)
+  NoConfidence pGovActionId -> PV4.NoConfidence (transPrevGovActionId pGovActionId)
+  UpdateCommittee pGovActionId ccToRemove ccToAdd threshold ->
+    PV4.UpdateCommittee
+      (transPrevGovActionId pGovActionId)
+      (map (PV4.ColdCommitteeCredential . transCred) $ Set.toList ccToRemove)
+      (transMap (PV4.ColdCommitteeCredential . transCred) transEpochNo ccToAdd)
+      (transBoundedRational threshold)
+  NewConstitution pGovActionId constitution ->
+    PV4.NewConstitution
+      (transPrevGovActionId pGovActionId)
+      (transConstitution constitution)
+  InfoAction -> PV4.InfoAction
+  where
+    transGovPolicy = \case
+      SJust govPolicy -> Just (transScriptHash govPolicy)
+      SNothing -> Nothing
+    transConstitution (Constitution _ govPolicy) =
+      PV4.Constitution (transGovPolicy govPolicy)
+    transPrevGovActionId = \case
+      SJust (GovPurposeId gaId) -> Just (transGovActionIdV4 gaId)
+      SNothing -> Nothing
+
+transVotingProceduresV4 ::
+  VotingProcedures era -> PV4.Map PV4.Voter (PV4.Map PV4.GovernanceActionId PV4.Vote)
+transVotingProceduresV4 =
+  transMap transVoterV4 (transMap transGovActionIdV4 (transVoteV4 . vProcVote)) . unVotingProcedures
+
+transVoteV4 :: Vote -> PV4.Vote
+transVoteV4 = \case
+  VoteNo -> PV4.VoteNo
+  VoteYes -> PV4.VoteYes
+  Abstain -> PV4.Abstain
+
+transProposalV4 ::
+  ConwayEraPlutusTxInfoV4 l era =>
+  proxy l ->
+  ProposalProcedure era ->
+  PV4.ProposalProcedure
+transProposalV4 proxy ProposalProcedure {pProcDeposit, pProcReturnAddr, pProcGovAction} =
+  PV4.ProposalProcedure
+    { PV4.ppDeposit = transCoinToLovelace pProcDeposit
+    , PV4.ppReturnAddr = transRewardAccount pProcReturnAddr
+    , PV4.ppGovernanceAction = transGovActionV4 proxy pProcGovAction
+    }
+
+transProtVerV4 :: ProtVer -> PV4.ProtocolVersion
+transProtVerV4 (ProtVer major minor) =
+  PV4.ProtocolVersion (toInteger (getVersion64 major)) (toInteger minor)
+
 -- ==========================
 -- Instances
+
+instance PlutusTx.Eq.Eq PV3.ScriptPurpose where
+  (==) = undefined -- TODO WG (I don't want to go and recalculate the hashes of my forked Plutus repo)
+
+instance PlutusTx.Eq.Eq PV4.ScriptPurpose where
+  (==) = undefined -- TODO WG (I don't want to go and recalculate the hashes of my forked Plutus repo)
 
 instance Crypto c => ToPlutusData (PParamsUpdate (ConwayEra c)) where
   toPlutusData = pparamUpdateToData conwayPParamMap
@@ -662,3 +913,6 @@ instance Crypto c => ToPlutusData (PParamsUpdate (ConwayEra c)) where
 
 instance Crypto c => ConwayEraPlutusTxInfo 'PlutusV3 (ConwayEra c) where
   toPlutusChangedParameters _ x = PV3.ChangedParameters (PV3.dataToBuiltinData (toPlutusData x))
+
+instance Crypto c => ConwayEraPlutusTxInfoV4 'PlutusV4 (ConwayEra c) where
+  toPlutusChangedParametersV4 _ x = PV4.ChangedParameters (PV4.dataToBuiltinData (toPlutusData x))

@@ -818,7 +818,6 @@ instance Arbitrary CostModelError where
         [ CMUnknownParamError <$> arbitrary
         , pure CMInternalReadError
         , CMInternalWriteError <$> arbitrary
-        , CMTooFewParamsError <$> arbitrary <*> arbitrary
         ]
 
 instance Arbitrary ExUnits where

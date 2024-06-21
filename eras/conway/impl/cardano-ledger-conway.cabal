@@ -108,12 +108,13 @@ library
         microlens,
         mtl,
         nothunks,
-        plutus-ledger-api ^>=1.26.0,
+        plutus-ledger-api ^>=1.30.0.0,
         set-algebra,
         small-steps >=1.1,
         text,
         transformers,
-        validation-selective
+        validation-selective,
+        plutus-tx,
 
     if flag(asserts)
         ghc-options: -fno-ignore-asserts

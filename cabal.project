@@ -94,3 +94,15 @@ benchmarks: true
 
 -- The only sensible test display option
 test-show-details: streaming
+
+source-repository-package
+  type: git
+  location: https://github.com/willjgould/plutus
+  tag: cb3dcbde537635fccd46ec40e71750ecf7cb9530
+  --sha256: 10kimcrsh7fibbnq96i7fc7xv0r3vsyngqbmpnfmijaa2j4k2zha
+  subdir:
+    plutus-ledger-api
+    plutus-tx
+    plutus-tx-plugin
+    plutus-core
+    prettyprinter-configurable

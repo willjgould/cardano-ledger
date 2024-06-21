@@ -91,6 +91,7 @@ instance Crypto c => AlonzoEraScript (ConwayEra c) where
     = ConwayPlutusV1 !(Plutus 'PlutusV1)
     | ConwayPlutusV2 !(Plutus 'PlutusV2)
     | ConwayPlutusV3 !(Plutus 'PlutusV3)
+    | ConwayPlutusV4 !(Plutus 'PlutusV4)
     deriving (Eq, Ord, Show, Generic)
 
   type PlutusPurpose f (ConwayEra c) = ConwayPlutusPurpose f (ConwayEra c)
@@ -102,10 +103,12 @@ instance Crypto c => AlonzoEraScript (ConwayEra c) where
       SPlutusV1 -> Just $ ConwayPlutusV1 plutus
       SPlutusV2 -> Just $ ConwayPlutusV2 plutus
       SPlutusV3 -> Just $ ConwayPlutusV3 plutus
+      SPlutusV4 -> Just $ ConwayPlutusV4 plutus
 
   withPlutusScript (ConwayPlutusV1 plutus) f = f plutus
   withPlutusScript (ConwayPlutusV2 plutus) f = f plutus
   withPlutusScript (ConwayPlutusV3 plutus) f = f plutus
+  withPlutusScript (ConwayPlutusV4 plutus) f = f plutus
 
   hoistPlutusPurpose f = \case
     ConwaySpending x -> ConwaySpending $ f x

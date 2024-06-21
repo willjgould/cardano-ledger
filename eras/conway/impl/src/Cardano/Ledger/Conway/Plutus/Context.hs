@@ -13,6 +13,7 @@ module Cardano.Ledger.Conway.Plutus.Context (
   conwayPParam,
   conwayPParamMap,
   ConwayEraPlutusTxInfo (..),
+  ConwayEraPlutusTxInfoV4 (..),
 ) where
 
 import Cardano.Ledger.Alonzo.PParams (
@@ -70,6 +71,7 @@ import Data.Maybe.Strict (StrictMaybe (..))
 import Lens.Micro ((&), (.~), (^.))
 import PlutusLedgerApi.Common (Data (..))
 import qualified PlutusLedgerApi.V3 as PV3
+import qualified PlutusLedgerApi.V4 as PV4
 
 -- ====================================================================
 -- Generic, Table (Map Word (PParam era)) driven translators for
@@ -210,3 +212,11 @@ class
   ConwayEraPlutusTxInfo (l :: Language) era
   where
   toPlutusChangedParameters :: proxy l -> PParamsUpdate era -> PV3.ChangedParameters
+
+class
+  ( ToPlutusData (PParamsUpdate era)
+  , EraPlutusTxInfo l era
+  ) =>
+  ConwayEraPlutusTxInfoV4 (l :: Language) era
+  where
+  toPlutusChangedParametersV4 :: proxy l -> PParamsUpdate era -> PV4.ChangedParameters
