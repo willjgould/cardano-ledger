@@ -289,20 +289,22 @@ zoneTransition =
               , txs :: Seq (Tx era)
               )
           ) -> do
-        {-   totExunits tx ≤ maxTxExUnits pp
-              runTest $ Alonzo.validateExUnitsTooBigUTxO pp tx -}
+        {- ((totSizeZone ltx) ≤ᵇ (Γ .LEnv.pparams .PParams.maxTxSize)) ≡ true -}
         runTestOnSignal $ validateMaxTxSizeUTxO pParams (Foldable.toList txs)
         if all chkIsValid txs -- ZONE-V
           then do
             -- TODO WG: make sure `runTestOnSignal` is correct rather than `runTest`
+            {- All (chkRqTx ltx) (fromList ltx) -}
             runTestOnSignal $ failureUnless (all (chkRqTx txs) txs) CheckRqTxFailure
+            {- noCycles ltx -}
             runTestOnSignal $ failureUnless (chkLinear (Foldable.toList txs)) CheckLinearFailure
+            {- totExunits tx ≤ maxTxExUnits pp -}
             runTestOnSignal $ validateExUnitsTooBigUTxO pParams (Foldable.toList txs)
             trans @(EraRule "LEDGERS" era) $
               TRC (ConwayLedgersEnv slotNo ixRange pParams accountState, LedgerState utxoState certState, txs)
-          else -- Add failure condition on anything other than: exactly 1 invalid (last tx)
-          -- ZONE-N
+          else -- ZONE-N
           do
+            -- Check that only the last transaction is invalid
             runTestOnSignal $
               failureUnless (chkExactlyLastInvalid (Foldable.toList txs)) MoreThanOneInvalidTransaction
             conwayEvalScriptsTxInvalid @era
