@@ -22,6 +22,7 @@ import Cardano.Ledger.BHeaderView (
   isOverlaySlot,
  )
 import Cardano.Ledger.Babel.Era (BabelBBODY, BabelEra)
+import Cardano.Ledger.Babel.LedgerState.Types (LedgerStateTemp, fromLedgerState, toLedgerState)
 import Cardano.Ledger.Babel.Rules.Ledger (BabelLedgerPredFailure)
 import Cardano.Ledger.Babel.Rules.Ledgers ()
 import Cardano.Ledger.Babel.Rules.Utxo (BabelUtxoPredFailure)
@@ -36,6 +37,7 @@ import Cardano.Ledger.Shelley.API (
   ShelleyLedgersEnv (LedgersEnv),
  )
 import Cardano.Ledger.Shelley.BlockChain (incrBlocks)
+import Cardano.Ledger.Shelley.LedgerState (LedgerState)
 import Cardano.Ledger.Shelley.Rules (
   BbodyEnv (BbodyEnv),
   ShelleyBbodyPredFailure,
@@ -127,9 +129,10 @@ instance
   , Embed (EraRule "ZONES" era) (BabelBBODY era)
   , Environment (EraRule "ZONES" era) ~ ShelleyLedgersEnv era
   , Signal (EraRule "ZONES" era) ~ Seq (Seq (Tx era))
+  , State (EraRule "ZONES" era) ~ LedgerState era
   , Eq (PredicateFailure (EraRule "LEDGERS" era))
   , Show (PredicateFailure (EraRule "LEDGERS" era))
-  , State (EraRule "LEDGERS" era) ~ State (EraRule "ZONES" era)
+  , State (EraRule "LEDGERS" era) ~ LedgerStateTemp era
   ) =>
   STS (BabelBBODY era)
   where
@@ -156,7 +159,8 @@ bbodyTransition ::
   , Embed (EraRule "ZONES" era) (BabelBBODY era)
   , Environment (EraRule "ZONES" era) ~ ShelleyLedgersEnv era
   , Signal (EraRule "ZONES" era) ~ Seq (Seq (Tx era))
-  , State (EraRule "LEDGERS" era) ~ State (EraRule "ZONES" era)
+  , State (EraRule "ZONES" era) ~ LedgerState era
+  , State (EraRule "LEDGERS" era) ~ LedgerStateTemp era
   ) =>
   TransitionRule (BabelBBODY era)
 bbodyTransition =
@@ -185,7 +189,7 @@ bbodyTransition =
           trans @(EraRule "ZONES" era) $
             TRC
               ( LedgersEnv (bhviewSlot bhview) pp account
-              , ls
+              , toLedgerState ls
               , StrictSeq.fromStrict <$> StrictSeq.fromStrict txs
               )
 
@@ -199,7 +203,7 @@ bbodyTransition =
           e <- epochInfoEpoch ei slot
           epochInfoFirst ei e
         let isOverlay = isOverlaySlot firstSlotNo (pp ^. ppDG) slot
-        pure $ BbodyState ls' (incrBlocks isOverlay hkAsStakePool b)
+        pure $ BbodyState (fromLedgerState ls') (incrBlocks isOverlay hkAsStakePool b)
 
 instance
   forall era zones.

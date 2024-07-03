@@ -277,7 +277,6 @@ instance
   , EncCBORGroup (TxZones era)
   , ProtVerAtMost era 10
   , State (EraRule "ZONES" era) ~ LedgerState era
-  , State (Core.EraRule "LEDGERS" era) ~ LedgerState era
   ) =>
   STS (CHAIN era)
   where

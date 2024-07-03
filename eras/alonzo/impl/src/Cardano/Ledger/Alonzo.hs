@@ -42,12 +42,13 @@ import Cardano.Ledger.Keys (DSignable, Hash)
 import Cardano.Ledger.Mary.Value (MaryValue)
 import Cardano.Ledger.Plutus.Data ()
 import Cardano.Ledger.Rules.ValidationMode (applySTSNonStatic)
+import Cardano.Ledger.Shelley.API (LedgerState)
 import qualified Cardano.Ledger.Shelley.API as API
 import Cardano.Ledger.Shelley.API.Mempool
 import Control.Arrow (left)
 import Control.Monad.Except (MonadError, liftEither)
 import Control.Monad.Reader (runReader)
-import Control.State.Transition.Extended (TRC (TRC))
+import Control.State.Transition.Extended (STS (..), TRC (TRC))
 
 type Alonzo = AlonzoEra StandardCrypto
 
@@ -55,7 +56,10 @@ type Alonzo = AlonzoEra StandardCrypto
 
 reapplyAlonzoTx ::
   forall era m.
-  (API.ApplyTx era, MonadError (ApplyTxError era) m) =>
+  ( API.ApplyTx era
+  , MonadError (ApplyTxError era) m
+  , State (EraRule "LEDGER" era) ~ LedgerState era
+  ) =>
   Globals ->
   MempoolEnv era ->
   MempoolState era ->

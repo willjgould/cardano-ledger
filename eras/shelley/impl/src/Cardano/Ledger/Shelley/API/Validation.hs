@@ -71,7 +71,6 @@ class
   , State (EraRule "BBODY" era) ~ STS.ShelleyBbodyState era
   , Signal (EraRule "BBODY" era) ~ Block (BHeaderView (EraCrypto era)) era
   , EncCBORGroup (TxZones era)
-  , State (EraRule "LEDGERS" era) ~ LedgerState era
   ) =>
   ApplyBlock era
   where
@@ -105,7 +104,11 @@ class
     m (EventReturnType ep (EraRule "BBODY" era) (NewEpochState era))
   default applyBlockOpts ::
     forall ep m.
-    (EventReturnTypeRep ep, MonadError (BlockTransitionError era) m, EraGov era) =>
+    ( EventReturnTypeRep ep
+    , MonadError (BlockTransitionError era) m
+    , EraGov era
+    , State (EraRule "LEDGERS" era) ~ LedgerState era
+    ) =>
     ApplySTSOpts ep ->
     Globals ->
     NewEpochState era ->
@@ -141,7 +144,7 @@ class
     Block (BHeaderView (EraCrypto era)) era ->
     NewEpochState era
   default reapplyBlock ::
-    EraGov era =>
+    (State (EraRule "LEDGERS" era) ~ LedgerState era, EraGov era) =>
     Globals ->
     NewEpochState era ->
     Block (BHeaderView (EraCrypto era)) era ->
