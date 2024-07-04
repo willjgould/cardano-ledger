@@ -22,6 +22,7 @@ module Cardano.Ledger.Babel.LedgerState.Types where
 
 import Cardano.Ledger.Coin (Coin)
 import Cardano.Ledger.Conway.Core (EraCrypto, EraGov, EraTxOut, GovState)
+import Cardano.Ledger.Core (Era)
 import Cardano.Ledger.FRxO (FRxO)
 import Cardano.Ledger.Shelley.API (LedgerState (..), UTxOState (..))
 import Cardano.Ledger.Shelley.LedgerState (
@@ -48,7 +49,7 @@ data LedgerStateTemp era = LedgerStateTemp
 instance Default (UTxOStateTemp era) => Default (LedgerStateTemp era) where
   def = LedgerStateTemp def def
 
-instance HasLedgerState LedgerStateTemp era where
+instance Era era => HasLedgerState LedgerStateTemp era where
   hlsUtxoStateL = lens getter setter
     where
       getter s = toUTxOState (s ^. lstUtxoStateL)
@@ -114,7 +115,7 @@ deriving stock instance
 -- Conversion
 
 -- | Convert from LedgerState to LedgerStateTemp
-fromLedgerState :: LedgerState era -> LedgerStateTemp era
+fromLedgerState :: Era era => LedgerState era -> LedgerStateTemp era
 fromLedgerState LedgerState {lsUTxOState, lsCertState} =
   LedgerStateTemp
     { lstUTxOState = fromUTxOState lsUTxOState
@@ -122,11 +123,10 @@ fromLedgerState LedgerState {lsUTxOState, lsCertState} =
     }
 
 -- | Convert from UTxOState to UTxOStateTemp
-fromUTxOState :: UTxOState era -> UTxOStateTemp era
+fromUTxOState :: Era era => UTxOState era -> UTxOStateTemp era
 fromUTxOState
   UTxOState
     { utxosUtxo
-    , utxosFrxo
     , utxosDeposited
     , utxosFees
     , utxosGovState
@@ -135,7 +135,7 @@ fromUTxOState
     } =
     UTxOStateTemp
       { utxostUtxo = utxosUtxo
-      , utxostFrxo = utxosFrxo
+      , utxostFrxo = mempty
       , utxostDeposited = utxosDeposited
       , utxostFees = utxosFees
       , utxostGovState = utxosGovState
@@ -156,7 +156,6 @@ toUTxOState :: UTxOStateTemp era -> UTxOState era
 toUTxOState
   UTxOStateTemp
     { utxostUtxo
-    , utxostFrxo
     , utxostDeposited
     , utxostFees
     , utxostGovState
@@ -165,7 +164,6 @@ toUTxOState
     } =
     UTxOState
       { utxosUtxo = utxostUtxo
-      , utxosFrxo = utxostFrxo
       , utxosDeposited = utxostDeposited
       , utxosFees = utxostFees
       , utxosGovState = utxostGovState
