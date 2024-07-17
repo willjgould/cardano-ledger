@@ -278,6 +278,9 @@ cradle:
 
     - path: "libs/non-integral/test"
       component: "non-integral:test:non-integral-test"
+    
+    - path: "libs/non-integral/bench"
+      component: "non-integral:bench:non-integral-bench"
 
     - path: "libs/plutus-preprocessor/src"
       component: "lib:plutus-preprocessor"
