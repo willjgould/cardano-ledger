@@ -7,6 +7,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# OPTIONS_GHC -Wno-unused-imports #-}
 
 module Main (main) where
 
@@ -22,10 +23,18 @@ import Criterion.Types (
  )
 import Data.Aeson (Value, eitherDecode)
 import qualified Data.ByteString.Lazy as B
+import Data.Ratio ((%))
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
+import LeaderElection (
+  BoundedRatio (..),
+  PositiveUnitInterval (..),
+  assertBoundedNatural,
+  checkLeaderNatValue,
+  mkActiveSlotCoeff,
+ )
 import Statistics.Types (Estimate (..))
 import Text.Pandoc
 import Text.Pandoc.Error (handleError)
@@ -40,6 +49,7 @@ main = do
   (Right (_, _, reports)) <- readJSONReports reportJsonName
   generateTypstReport reports
 
+-- We can use a template to change the html output. Might be easier than using typst.
 config :: Config
 config = defaultConfig {jsonFile = Just reportJsonName, template = "./bench/templates/my_template.tpl"}
 
@@ -70,6 +80,25 @@ benchmarks =
       , bench "medium" $ nf (taylorExpCmp (2 :: Double) 2) 1.5
       , bench "large" $ nf (taylorExpCmp (10 :: Double) 100) 5
       ]
+  , bgroup
+      "checkLeaderNatValue"
+      [ bench "ones" $
+          nf
+            (checkLeaderNatValue (assertBoundedNatural 1 1) (1 % 1))
+            (mkActiveSlotCoeff $ PositiveUnitInterval $ BoundedRatio $ 1 % 1)
+      , bench "lower-range" $
+          nf
+            (checkLeaderNatValue (assertBoundedNatural 1000000 1) (1 % 1000000))
+            (mkActiveSlotCoeff $ PositiveUnitInterval $ BoundedRatio $ 1 % 1000000)
+      , bench "mid-range" $
+          nf
+            (checkLeaderNatValue (assertBoundedNatural 1000 500) (1 % 2))
+            (mkActiveSlotCoeff $ PositiveUnitInterval $ BoundedRatio $ 1 % 2)
+      , bench "upper-range" $
+          nf
+            (checkLeaderNatValue (assertBoundedNatural 1000000 999999) (999999 % 1000000))
+            (mkActiveSlotCoeff $ PositiveUnitInterval $ BoundedRatio $ 999999 % 1000000)
+      ]
   ]
   where
     benchGroup :: String -> (Double -> Double) -> Benchmark
@@ -83,56 +112,55 @@ benchmarks =
         , bench "large" $ whnf f 100.0
         ]
 
+-- Example handcranked (not currently useful) typst
 generateTypstReport :: [Report] -> IO ()
 generateTypstReport reports = do
   let typstContent =
         unlines $
           [ "#let project(title: \"\", body) = {"
           , "  set document(title: title)"
-          , "  set page(numbering: \"1\", number-align: center)"
-          , "  set text(font: \"Linux Libertine\", lang: \"en\")"
-          , "  align(center)[#block(text(weight: 700, 1.75em, title))]"
+          , "  align(center)[#block(text(2em, title))]"
           , "  body"
           , "}"
           , ""
           , "#show: project.with("
-          , "  title: \"Benchmark Results Summary\","
+          , "  title: \"NonIntegral Benchmark Results Summary\","
           , ")"
           , ""
           ]
-            ++ concatMap reportToTypst reports
+            ++ fmap reportToTypst reports
 
   writeFile "report.typ" typstContent
-  putStrLn "Typst report generated: report.typ"
 
-reportToTypst :: Report -> [String]
+reportToTypst :: Report -> String
 reportToTypst Report {..} =
-  [ "== " ++ reportName
-  , ""
-  , "=== Analysis"
-  , ""
-  , "#table("
-  , "  columns: (auto, auto, auto),"
-  , "  [Metric], [Value], [Unit],"
-  , "  [Mean], [" ++ showDouble (estPoint $ anMean reportAnalysis) ++ "], [seconds],"
-  , "  [Std Dev], [" ++ showDouble (estPoint $ anStdDev reportAnalysis) ++ "], [seconds],"
-  , "  [Sample Size], [" ++ show (V.length reportMeasured) ++ "], [measurements],"
-  , ")"
-  , ""
-  , "=== Outliers"
-  , ""
-  , "#table("
-  , "  columns: (auto, auto),"
-  , "  [Category], [Count],"
-  , "  [Low Mild], [" ++ show (lowMild reportOutliers) ++ "],"
-  , "  [Low Severe], [" ++ show (lowSevere reportOutliers) ++ "],"
-  , "  [High Mild], [" ++ show (highMild reportOutliers) ++ "],"
-  , "  [High Severe], [" ++ show (highSevere reportOutliers) ++ "],"
-  , ")"
-  , ""
-  , "Total samples seen: " ++ show (samplesSeen reportOutliers)
-  , ""
-  ]
+  unlines
+    [ "== " ++ reportName
+    , ""
+    , "=== Analysis"
+    , ""
+    , "#table("
+    , "  columns: (auto, auto, auto),"
+    , "  [Metric], [Value], [Unit],"
+    , "  [Mean], [" ++ showDouble (estPoint $ anMean reportAnalysis) ++ "], [seconds],"
+    , "  [Std Dev], [" ++ showDouble (estPoint $ anStdDev reportAnalysis) ++ "], [seconds],"
+    , "  [Sample Size], [" ++ show (V.length reportMeasured) ++ "], [measurements],"
+    , ")"
+    , ""
+    , "=== Outliers"
+    , ""
+    , "#table("
+    , "  columns: (auto, auto),"
+    , "  [Category], [Count],"
+    , "  [Low Mild], [" ++ show (lowMild reportOutliers) ++ "],"
+    , "  [Low Severe], [" ++ show (lowSevere reportOutliers) ++ "],"
+    , "  [High Mild], [" ++ show (highMild reportOutliers) ++ "],"
+    , "  [High Severe], [" ++ show (highSevere reportOutliers) ++ "],"
+    , ")"
+    , ""
+    , "Total samples seen: " ++ show (samplesSeen reportOutliers)
+    , ""
+    ]
 
 showDouble :: Double -> String
 showDouble = printf "%.6f"

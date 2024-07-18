@@ -246,6 +246,9 @@ cradle:
     - path: "libs/cardano-protocol-tpraos/test"
       component: "cardano-protocol-tpraos:test:tests"
 
+    - path: "libs/cardano-protocol-tpraos/bench"
+      component: "cardano-protocol-tpraos:bench:tpraos-bench"
+
     - path: "libs/constrained-generators/src"
       component: "lib:constrained-generators"
 

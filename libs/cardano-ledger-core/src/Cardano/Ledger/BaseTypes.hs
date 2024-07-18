@@ -32,10 +32,11 @@ module Cardano.Ledger.BaseTypes (
   Nonce (..),
   Seed (..),
   UnitInterval,
-  PositiveUnitInterval,
+  PositiveUnitInterval (..),
   PositiveInterval,
   NonNegativeInterval,
   BoundedRational (..),
+  BoundedRatio (..),
   fpPrecision,
   integralToBounded,
   promoteRatio,
@@ -628,6 +629,7 @@ instance EncCBOR ActiveSlotCoeff where
       } =
       encCBOR slotVal
 
+-- TODO WG HERE
 mkActiveSlotCoeff :: PositiveUnitInterval -> ActiveSlotCoeff
 mkActiveSlotCoeff v =
   ActiveSlotCoeff

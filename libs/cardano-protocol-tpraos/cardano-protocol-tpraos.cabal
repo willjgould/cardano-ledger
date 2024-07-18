@@ -100,3 +100,33 @@ test-suite tests
         cardano-ledger-core:{cardano-ledger-core, testlib},
         cardano-ledger-shelley:{cardano-ledger-shelley, testlib} >=1.7.1,
         cardano-protocol-tpraos
+
+benchmark tpraos-bench
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   bench
+    default-language: Haskell2010
+    ghc-options:
+        -Wall -Wcompat -Wincomplete-record-updates
+        -Wincomplete-uni-patterns -Wredundant-constraints -Wunused-packages
+        -threaded -rtsopts -O2
+
+    build-depends:
+        base,
+        bytestring,
+        cardano-protocol-tpraos,
+        --containers,
+        criterion,
+        deepseq,
+        --random,
+        text,
+        statistics,
+        --directory,
+        --filepath,
+        vector,
+        pandoc,
+        aeson,
+        cardano-ledger-core,
+        -- nothunks,
+        -- cardano-ledger-binary,
+        -- scientific,

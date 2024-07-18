@@ -45,6 +45,7 @@ benchmark non-integral-bench
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
     hs-source-dirs:   bench
+    other-modules:    LeaderElection
     default-language: Haskell2010
     ghc-options:
         -Wall -Wcompat -Wincomplete-record-updates
@@ -55,14 +56,17 @@ benchmark non-integral-bench
         base,
         bytestring,
         non-integral,
-        containers,
+        --containers,
         criterion,
         deepseq,
-        random,
+        --random,
         text,
         statistics,
-        directory,
-        filepath,
+        --directory,
+        --filepath,
         vector,
         pandoc,
         aeson,
+        nothunks,
+        cardano-ledger-binary,
+        scientific,
