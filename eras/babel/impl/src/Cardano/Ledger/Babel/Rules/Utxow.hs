@@ -453,6 +453,7 @@ babelUtxowTransition = do
       sRefs =
         Map.keysSet (getReferenceScripts utxo inputs)
           <> Map.keysSet (getReferenceScriptsFrxo frxo inputs)
+
   runTest $ babbageMissingScripts pp scriptHashesNeeded sRefs sReceived
 
   {-  inputHashes ⊆  dom(txdats txw) ⊆  allowed -}

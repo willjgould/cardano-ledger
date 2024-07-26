@@ -46,8 +46,8 @@ data BabelEra c
 instance Crypto c => Era (BabelEra c) where
   type PreviousEra (BabelEra c) = ConwayEra c
   type EraCrypto (BabelEra c) = c
-  type ProtVerLow (BabelEra c) = 9
-  type ProtVerHigh (BabelEra c) = 10
+  type ProtVerLow (BabelEra c) = 11
+  type ProtVerHigh (BabelEra c) = 12
 
   eraName = "Babel"
 
@@ -74,10 +74,6 @@ type instance EraRuleEvent "PPUP" (BabelEra c) = VoidEraRule "PPUP" (BabelEra c)
 type instance EraRule "MIR" (BabelEra c) = VoidEraRule "MIR" (BabelEra c)
 type instance EraRuleFailure "MIR" (BabelEra c) = VoidEraRule "MIR" (BabelEra c)
 type instance EraRuleEvent "MIR" (BabelEra c) = VoidEraRule "MIR" (BabelEra c)
-
-type instance EraRule "DELEGS" (BabelEra c) = VoidEraRule "DELEGS" (BabelEra c)
-type instance EraRuleFailure "DELEGS" (BabelEra c) = VoidEraRule "DELEGS" (BabelEra c)
-type instance EraRuleEvent "DELEGS" (BabelEra c) = VoidEraRule "DELEGS" (BabelEra c)
 
 -------------------------------------------------------------------------------
 -- Era Mapping

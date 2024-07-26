@@ -20,6 +20,8 @@ import Cardano.Ledger.Babel.TxBody
 import Cardano.Ledger.Babel.TxCert
 import Cardano.Ledger.Babel.TxInfo (BabelContextError)
 import Cardano.Ledger.BaseTypes
+import Cardano.Ledger.Crypto (StandardCrypto)
+import Cardano.Ledger.Shelley.Rules (ShelleyLedgersEvent, ShelleyLedgersPredFailure)
 import Control.State.Transition.Extended (STS (..))
 import Test.Cardano.Data.TreeDiff ()
 import Test.Cardano.Ledger.Babbage.TreeDiff
@@ -102,3 +104,24 @@ instance
   , ToExpr (TxCert era)
   ) =>
   ToExpr (BabelUtxowPredFailure era)
+
+instance
+  ( ToExpr (Event (EraRule "LEDGER" era))
+  , ToExpr (Event (EraRule "UTXOW" era))
+  ) =>
+  ToExpr (ShelleyLedgersEvent era)
+
+instance
+  ToExpr (PredicateFailure (EraRule "LEDGERS" (BabelEra StandardCrypto))) =>
+  ToExpr
+    (BabelZonePredFailure (BabelEra StandardCrypto))
+
+instance
+  ( ToExpr (Event (EraRule "LEDGER" era))
+  , ToExpr (Event (EraRule "UTXOW" era))
+  ) =>
+  ToExpr (BabelZoneEvent era)
+
+instance
+  ToExpr (PredicateFailure (EraRule "LEDGER" era)) =>
+  ToExpr (ShelleyLedgersPredFailure era)

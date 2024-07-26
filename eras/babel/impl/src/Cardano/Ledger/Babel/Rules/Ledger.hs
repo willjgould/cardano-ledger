@@ -343,7 +343,8 @@ ledgerTransition ::
   ) =>
   TransitionRule (someLEDGER era)
 ledgerTransition = do
-  TRC (LedgerEnv slot _txIx pp account, LedgerStateTemp utxoState certState, tx) <- judgmentContext
+  TRC (LedgerEnv slot _txIx pp account, LedgerStateTemp utxoState certState, tx) <-
+    judgmentContext
 
   let actualTreasuryValue = account ^. asTreasuryL
    in case tx ^. bodyTxL . currentTreasuryValueTxBodyL of
@@ -403,7 +404,8 @@ ledgerTransition = do
                 & utxostGovStateL
                 . proposalsGovStateL
                 .~ proposalsState
-        pure (utxoState', certStateAfterCERTS)
+        pure
+          (utxoState', certStateAfterCERTS)
       else pure (utxoState, certState)
 
   utxoState'' <-

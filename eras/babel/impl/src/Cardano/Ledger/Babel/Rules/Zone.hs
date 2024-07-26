@@ -7,7 +7,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -98,6 +100,9 @@ import Cardano.Ledger.Babel.Rules.Ledgers (BabelLEDGERS, BabelLedgersEnv (BabelL
 import Cardano.Ledger.Babel.Rules.Utxo (BabelUtxoPredFailure (..))
 import Cardano.Ledger.Babel.Rules.Utxos (BabelUtxosPredFailure (CollectErrors))
 import Cardano.Ledger.Babel.Rules.Utxow (BabelUtxowPredFailure)
+import Cardano.Ledger.Binary (EncCBOR (..))
+import Cardano.Ledger.Binary.Coders (Decode (..), Encode (..), decode, encode, (!>), (<!))
+import Cardano.Ledger.Binary.Decoding (DecCBOR (..))
 import Cardano.Ledger.Coin (Coin (..), DeltaCoin (DeltaCoin))
 import Cardano.Ledger.Core (PParams, feeTxBodyL, ppMaxTxSizeL, sizeTxF)
 import Cardano.Ledger.Plutus (
@@ -113,6 +118,7 @@ import Cardano.Ledger.Shelley.Rules (
   ShelleyLedgersPredFailure (..),
  )
 import Cardano.Ledger.UTxO (EraUTxO (ScriptsNeeded))
+import Control.DeepSeq (NFData)
 import Control.Monad.RWS (asks)
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import qualified Data.Map as Map
@@ -130,6 +136,7 @@ data BabelZoneEvent era
   = ShelleyInBabelEvent (ShelleyLedgersEvent era)
   | ZoneFailedPlutusScriptsEvent (NonEmpty (PlutusWithContext (EraCrypto era)))
   | ZoneSuccessfulPlutusScriptsEvent (NonEmpty (PlutusWithContext (EraCrypto era)))
+  deriving (Generic)
 
 type instance EraRuleFailure "ZONE" (BabelEra c) = BabelZonePredFailure (BabelEra c)
 
@@ -176,6 +183,89 @@ deriving anyclass instance
   , NoThunks (PredicateFailure (EraRule "LEDGERS" era))
   ) =>
   NoThunks (BabelZonePredFailure era)
+
+instance
+  ( Era era
+  , NFData (PredicateFailure (EraRule "LEDGER" era))
+  , NFData (ShelleyLedgersPredFailure era)
+  ) =>
+  NFData (BabelZonePredFailure era)
+
+instance
+  ( Era era
+  , EncCBOR (PredicateFailure (EraRule "LEDGER" era))
+  ) =>
+  EncCBOR (BabelZonePredFailure era)
+  where
+  encCBOR =
+    encode . \case
+      LedgersFailure x -> Sum (LedgersFailure @era) 1 !> To x
+      ShelleyInBabelPredFailure x -> Sum (ShelleyInBabelPredFailure @era) 2 !> To x
+
+instance
+  ( Era era
+  , DecCBOR (PredicateFailure (EraRule "LEDGER" era))
+  ) =>
+  DecCBOR (BabelZonePredFailure era)
+  where
+  decCBOR =
+    decode $ Summands "BabelZonePredFailure" $ \case
+      1 -> SumD LedgersFailure <! From
+      2 -> SumD ShelleyInBabelPredFailure <! From
+      n -> Invalid n
+
+deriving instance
+  ( Era era
+  , Show (Event (EraRule "LEDGER" era))
+  ) =>
+  Show (BabelZoneEvent era)
+
+deriving instance
+  ( Era era
+  , Eq (Event (EraRule "LEDGER" era))
+  ) =>
+  Eq (BabelZoneEvent era)
+
+deriving anyclass instance
+  ( Era era
+  , NoThunks (ShelleyLedgersEvent era)
+  , NoThunks (PlutusWithContext (EraCrypto era))
+  ) =>
+  NoThunks (BabelZoneEvent era)
+
+instance
+  ( Era era
+  , NFData (ShelleyLedgersEvent era)
+  ) =>
+  NFData (BabelZoneEvent era)
+
+instance
+  ( Era era
+  , EncCBOR (PredicateFailure (EraRule "LEDGER" era))
+  , EncCBOR (Event (EraRule "LEDGER" era))
+  , EncCBOR (PlutusWithContext (EraCrypto era))
+  ) =>
+  EncCBOR (BabelZoneEvent era)
+  where
+  encCBOR =
+    encode . \case
+      ShelleyInBabelEvent x -> Sum (ShelleyInBabelEvent @era) 1 !> To x
+      ZoneFailedPlutusScriptsEvent x -> Sum (ZoneFailedPlutusScriptsEvent @era) 2 !> To x
+      ZoneSuccessfulPlutusScriptsEvent x -> Sum (ZoneSuccessfulPlutusScriptsEvent @era) 3 !> To x
+
+instance
+  ( Era era
+  , DecCBOR (Event (EraRule "LEDGER" era))
+  , DecCBOR (PlutusWithContext (EraCrypto era))
+  ) =>
+  DecCBOR (BabelZoneEvent era)
+  where
+  decCBOR =
+    decode $ Summands "BabelZonePredFailure" $ \case
+      1 -> SumD ShelleyInBabelEvent <! From
+      2 -> SumD ZoneFailedPlutusScriptsEvent <! From
+      3 -> SumD ZoneSuccessfulPlutusScriptsEvent <! From
+      n -> Invalid n
 
 instance
   ( EraRule "ZONE" era ~ BabelZONE era
@@ -267,18 +357,20 @@ zoneTransition =
           ) -> do
         let tx = last (Foldable.toList txs) -- TODO WG use safe head
         {- ((totSizeZone ltx) ≤ᵇ (Γ .LEnv.pparams .PParams.maxTxSize)) ≡ true -}
-        runTestOnSignal $ validateMaxTxSizeUTxO pParams (Foldable.toList txs)
+        runTestOnSignal $
+          validateMaxTxSizeUTxO pParams (Foldable.toList txs)
         -- ((coin (balance  (utxo ∣ tx .body .collateral)) * 100) ≥ᵇ sumCol ltx (Γ .LEnv.pparams .PParams.collateralPercentage)) ≡ true
         runTestOnSignal $
           failureUnless (all (checkCollateral pParams txs) (tx ^. bodyTxL . totalCollateralTxBodyL)) $
-            InsufficientCollateral undefined undefined -- TODO WG figure the error args out if you have time
+            InputSetEmptyUTxO -- InsufficientCollateral undefined undefined -- TODO WG figure the error args out if you have time
         if all chkIsValid txs -- ZONE-V
           then do
             -- TODO WG: make sure `runTestOnSignal` is correct rather than `runTest`
             {- All (chkRqTx ltx) (fromList ltx) -}
             runTestOnSignal $ failureUnless (all (chkRqTx txs) txs) CheckRqTxFailure
             {- noCycles ltx -}
-            runTestOnSignal $ failureUnless (chkLinear (Foldable.toList txs)) CheckLinearFailure
+            runTestOnSignal $
+              failureUnless (chkLinear (Foldable.toList txs)) CheckLinearFailure
             {- totExunits tx ≤ maxTxExUnits pp -}
             runTestOnSignal $ validateExUnitsTooBigUTxO pParams (Foldable.toList txs)
             lsTemp <- -- TODO WG: Should we be checking FRxO is empty before converting?
@@ -298,12 +390,13 @@ zoneTransition =
   where
     chkLinear :: [Tx era] -> Bool
     chkLinear txs =
-      topSortTxs
+      case topSortTxs
         (mkAllEdges txs txs)
         (mkAllEdges txs txs)
         (nodesWithNoIncomingEdge txs (mkAllEdges txs txs))
-        []
-        == Just []
+        [] of
+        Nothing -> False
+        _ -> True
     -- chkRqTx txs tx = ∀[ txrid ∈ tx .Tx.body .TxBody.requiredTxs ] Any (txrid ≡_) ( getIDs txs )
     chkRqTx :: Seq (Tx era) -> Tx era -> Bool
     chkRqTx txs tx = all chk txrids

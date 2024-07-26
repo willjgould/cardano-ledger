@@ -355,7 +355,8 @@ babelEvalScriptsTxValid = do
       (tellEvent . injectEvent . TotalDeposits (hashAnnotated txBody))
       (\a b -> tellEvent . injectEvent $ TxUTxODiff a b)
       (\a b -> tellEvent . injectEvent $ TxFRxODiff a b)
-  pure $! utxos' & utxostDonationL <>~ txBody ^. treasuryDonationTxBodyL
+  pure $!
+    utxos' & utxostDonationL <>~ txBody ^. treasuryDonationTxBodyL
 
 -- | This monadic action captures the final stages of the UTXO(S) rule. In particular it
 -- applies all of the UTxO related aditions and removals, gathers all of the fees into the

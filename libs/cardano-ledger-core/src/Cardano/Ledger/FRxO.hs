@@ -29,16 +29,12 @@ import Cardano.Ledger.Binary (
  )
 import Cardano.Ledger.Binary.Decoding (DecShareCBOR (decShareCBOR))
 import Cardano.Ledger.Binary.Plain (fromCBOR)
-import Cardano.Ledger.Core (
-  Era (EraCrypto),
-  EraTxOut (TxOut),
-  fromEraCBOR,
-  toEraCBOR,
- )
+import Cardano.Ledger.Core (Era (EraCrypto), EraTxOut (TxOut), fromEraCBOR, toEraCBOR)
 import Cardano.Ledger.Credential (Credential)
 import Cardano.Ledger.Crypto (Crypto)
 import Cardano.Ledger.Keys (KeyRole (Staking))
 import Cardano.Ledger.TxIn (TxIn)
+import Cardano.Ledger.UTxO (UTxO (UTxO))
 import Control.DeepSeq (NFData)
 import Control.Monad ((<$!>))
 import Data.Aeson (ToJSON)
@@ -51,6 +47,9 @@ import Quiet (Quiet (Quiet))
 -- | The unspent transaction outputs.
 newtype FRxO era = FRxO {unFRxO :: Map.Map (TxIn (EraCrypto era)) (TxOut era)}
   deriving (Default, Generic, Semigroup)
+
+asUtxoWith :: (UTxO era -> b) -> FRxO era -> b
+asUtxoWith f = f . UTxO . unFRxO
 
 instance (EncCBOR (TxOut era), Era era) => ToCBOR (FRxO era) where
   toCBOR = toEraCBOR @era
@@ -89,3 +88,46 @@ deriving via
     (Show (TxOut era), Crypto (EraCrypto era)) => Show (FRxO era)
 
 deriving newtype instance (Era era, ToJSON (TxOut era)) => ToJSON (FRxO era)
+
+-- class EraUTxO era => EraFRxO era where
+--   -- | Calculate all the value that is being consumed by the transaction.
+--   getConsumedValueFrxo ::
+--     PParams era ->
+--     -- | Function that can lookup current delegation deposits
+--     (Credential 'Staking (EraCrypto era) -> Maybe Coin) ->
+--     -- | Function that can lookup current drep deposits
+--     (Credential 'DRepRole (EraCrypto era) -> Maybe Coin) ->
+--     FRxO era ->
+--     TxBody era ->
+--     Value era
+
+--   getProducedValueFrxo ::
+--     PParams era ->
+--     -- | Check whether a pool with a supplied PoolStakeId is already registered.
+--     (KeyHash 'StakePool (EraCrypto era) -> Bool) ->
+--     TxBody era ->
+--     Value era
+
+--   -- | Initial eras will look into witness set to find all of the available scripts, but
+--   -- starting with Babbage we can look for available scripts in the UTxO using reference
+--   -- inputs.
+--   getScriptsProvidedFrxo ::
+--     -- | For some era it is necessary to look into the UTxO to find all of the available
+--     -- scripts for the transaction
+--     FRxO era ->
+--     Tx era ->
+--     ScriptsProvided era
+
+--   -- | Produce all the information required for figuring out which scripts are required
+--   -- for the transaction to be valid, once those scripts are evaluated
+--   getScriptsNeededFrxo :: FRxO era -> TxBody era -> ScriptsNeeded era
+
+--   -- | Extract the set of all script hashes that are needed for script validation.
+--   getScriptsHashesNeededFrxo :: ScriptsNeeded era -> Set (ScriptHash (EraCrypto era))
+
+--   -- | Extract all of the KeyHash witnesses that are required for validating the transaction
+--   getWitsVKeyNeededFrxo ::
+--     CertState era -> UTxO era -> TxBody era -> Set (KeyHash 'Witness (EraCrypto era))
+
+--   -- | Minimum fee computation, excluding witnesses and including ref scripts size
+--   getMinFeeTxFrxo :: PParams era -> Tx era -> UTxO era -> Coin

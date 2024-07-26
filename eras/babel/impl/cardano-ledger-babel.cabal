@@ -141,7 +141,6 @@ library testlib
         bytestring,
         cardano-data:{cardano-data, testlib},
         containers,
-        plutus-ledger-api,
         deepseq,
         microlens,
         cardano-crypto-class,
@@ -152,7 +151,6 @@ library testlib
         cardano-ledger-babel,
         cardano-ledger-core:{cardano-ledger-core, testlib},
         cardano-ledger-conway:{cardano-ledger-conway, testlib},
-        cardano-ledger-mary,
         cardano-ledger-shelley,
         cardano-strict-containers,
         data-default-class,
@@ -160,7 +158,15 @@ library testlib
         microlens-mtl,
         mtl,
         text,
-        small-steps >=1.1
+        small-steps >=1.1,
+        prettyprinter,
+        QuickCheck,
+        unliftio-core,
+        hspec-core,
+        random,
+        HUnit,
+        cardano-ledger-byron,
+        unliftio,
 
 test-suite tests
     type:             exitcode-stdio-1.0

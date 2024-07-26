@@ -13,6 +13,8 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# OPTIONS_GHC -Wno-unused-imports #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 module Cardano.Ledger.Babel.Rules.Utxo (
   allegraToBabelUtxoPredFailure,
@@ -67,6 +69,7 @@ import Cardano.Ledger.BaseTypes (
   ProtVer (pvMajor),
   ShelleyBase,
   SlotNo,
+  TxIx (TxIx),
  )
 import Cardano.Ledger.Binary (DecCBOR (..), EncCBOR (..), Sized (sizedValue))
 import Cardano.Ledger.Binary.Coders (
@@ -88,7 +91,8 @@ import Cardano.Ledger.CertState (
  )
 import Cardano.Ledger.Coin (Coin, DeltaCoin)
 import Cardano.Ledger.Credential (Credential)
-import Cardano.Ledger.FRxO (FRxO (unFRxO))
+import Cardano.Ledger.Crypto (Crypto)
+import Cardano.Ledger.FRxO (FRxO (..), asUtxoWith)
 import Cardano.Ledger.Keys (KeyHash, KeyRole (..))
 import Cardano.Ledger.Mary (MaryValue (MaryValue))
 import Cardano.Ledger.Mary.Value (filterMultiAsset)
@@ -98,13 +102,12 @@ import Cardano.Ledger.SafeHash (originalBytesSize)
 import Cardano.Ledger.Shelley.Rules (ShelleyUtxoPredFailure)
 import qualified Cardano.Ledger.Shelley.Rules as Shelley (
   UtxoEnv (UtxoEnv),
-  validateBadInputsUTxO,
   validateInputSetEmptyUTxO,
   validateOutputBootAddrAttrsTooBig,
   validateWrongNetwork,
   validateWrongNetworkWithdrawal,
  )
-import Cardano.Ledger.TxIn (TxIn)
+import Cardano.Ledger.TxIn (TxIn (..))
 import Cardano.Ledger.UTxO (EraUTxO, UTxO (..), balance, txInsFilter)
 import Cardano.Ledger.Val ((<+>))
 import Control.DeepSeq (NFData)
@@ -123,13 +126,16 @@ import Control.State.Transition.Extended (
   validate,
  )
 import Data.Coerce (coerce)
-import Data.Foldable (Foldable (fold), sequenceA_)
+import Data.Foldable (Foldable (..), sequenceA_)
 import Data.List.NonEmpty (NonEmpty)
-import Data.Map (keysSet)
+import Data.Map (keysSet, mapKeys)
 import qualified Data.Map as Map
 import qualified Data.Monoid as Monoid
+import qualified Data.Sequence.Strict as SSeq
 import Data.Set (Set, isSubsetOf)
 import qualified Data.Set as Set
+import Data.Word (Word64)
+import Debug.Trace (trace)
 import GHC.Generics (Generic)
 import GHC.Natural (Natural)
 import Lens.Micro ((^.))
@@ -363,7 +369,9 @@ utxoTransition = do
   ei <- liftSTS $ asks epochInfo
 
   runTestOnSignal $
-    failureUnless ((txBody ^. fulfillsTxBodyL) `isSubsetOf` keysSet (unFRxO frxo)) CheckLinearFailure -- TODO WG obviously nonsense error
+    failureUnless
+      ((txBody ^. fulfillsTxBodyL) `isSubsetOf` keysSet (unFRxO frxo))
+      MoreThanOneInvalidTransaction -- TODO WG obviously nonsense error
 
   {- epochInfoSlotToUTCTime epochInfo systemTime i_f ≠ ◇ -}
   runTest $ Alonzo.validateOutsideForecast ei slot sysSt tx
@@ -377,7 +385,7 @@ utxoTransition = do
   {- allInputs = spendInputs txb ∪ collInputs txb ∪ refInputs txb -}
   {- (spendInputs txb ∪ collInputs txb ∪ refInputs txb) ⊆ dom utxo   -}
   -- TODO WG: I don't THINK this needs to do anything with FRXO but make sure
-  runTest $ Shelley.validateBadInputsUTxO utxo allInputs
+  runTest $ validateBadInputsUTxO utxo allInputs
 
   {- consumed pp utxo txb = produced pp poolParams txb -}
   runTest $ validateValueNotConservedUTxO pp utxo frxo certState txBody
@@ -419,6 +427,16 @@ utxoTransition = do
   runTest $ Alonzo.validateTooManyCollateralInputs pp txBody
 
   trans @(EraRule "UTXOS" era) =<< coerce <$> judgmentContext
+
+validateBadInputsUTxO ::
+  UTxO era ->
+  Set (TxIn (EraCrypto era)) ->
+  Test (BabelUtxoPredFailure era)
+validateBadInputsUTxO utxo txins =
+  failureUnless (Set.null badInputs) $ BadInputsUTxO badInputs
+  where
+    {- inputs ➖ dom utxo -}
+    badInputs = Set.filter (`Map.notMember` unUTxO utxo) txins
 
 -- \| Test that inputs and refInpts are disjoint, in Babel and later Eras.
 disjointRefInputs ::
@@ -552,6 +570,9 @@ instance
     20 -> SumD IncorrectTotalCollateralField <! From <! From
     21 -> SumD BabbageOutputTooSmallUTxO <! From
     22 -> SumD BabbageNonDisjointRefInputs <! From
+    23 -> SumD CheckRqTxFailure
+    24 -> SumD CheckLinearFailure
+    25 -> SumD MoreThanOneInvalidTransaction
     n -> Invalid n
 
 -- =====================================================
@@ -685,18 +706,48 @@ validateValueNotConservedUTxO ::
   TxBody era ->
   Test (BabelUtxoPredFailure era)
 validateValueNotConservedUTxO pp utxo frxo certState txBody =
-  failureUnless (consumedValue == producedValue) $ ValueNotConservedUTxO consumedValue producedValue
+  -- let hasRequests = not $ null $ txBody ^. requestsTxBodyL
+  --     hasFulfills = not $ null $ txBody ^. fulfillsTxBodyL
+  --  in
+  --   trace
+  --       ( "\n\n Consumed: "
+  --           <> show consumedValue
+  --           <> " | Produced: "
+  --           <> show producedValue
+  --           <> " \n\n TxBody has requests? "
+  --           <> show hasRequests
+  --           <> " \n TxBody has fulfills? "
+  --           <> show hasFulfills
+  --           <> ( if hasRequests
+  --                 then
+  --                   " \n Value of requests: "
+  --                     <> show (balance (requestsUTxO txBody))
+  --                 else ""
+  --              )
+  --           <> ( if hasFulfills
+  --                 then
+  --                   " \n Value of requests: "
+  --                     <> show (balance (requestsUTxO txBody))
+  --                 else ""
+  --              )
+  --           <> " \n The UTXO: "
+  --           <> show utxo
+  --           <> " \n \n The TxBody: "
+  --           <> show txBody
+  --       )
+  failureUnless
+    (consumedValue == producedValue)
+    $ ValueNotConservedUTxO consumedValue producedValue
   where
-    consumedValue = consumed pp certState utxo frxo txBody
+    consumedValue = consumed pp certState utxo txBody
     producedValue = produced pp certState txBody frxo
 
 -- | For eras before Conway, VState is expected to have an empty Map for vsDReps, and so deposit summed up is zero.
 consumed ::
-  (Value era ~ MaryValue (EraCrypto era), MaryEraTxBody era) =>
+  (Value era ~ MaryValue (EraCrypto era), BabelEraTxBody era) =>
   PParams era ->
   CertState era ->
   UTxO era ->
-  FRxO era ->
   TxBody era ->
   Value era
 consumed pp certState =
@@ -706,24 +757,32 @@ consumed pp certState =
     (lookupDepositVState $ certState ^. certVStateL)
 
 getConsumedBabelValue ::
-  (MaryEraTxBody era, Value era ~ MaryValue (EraCrypto era)) =>
+  forall era.
+  (Value era ~ MaryValue (EraCrypto era), BabelEraTxBody era) =>
   PParams era ->
   (Credential 'Staking (EraCrypto era) -> Maybe Coin) ->
   (Credential 'DRepRole (EraCrypto era) -> Maybe Coin) ->
   UTxO era ->
-  FRxO era ->
   TxBody era ->
   MaryValue (EraCrypto era)
-getConsumedBabelValue pp lookupStakingDeposit lookupDRepDeposit utxo _frxo txBody =
+getConsumedBabelValue pp lookupStakingDeposit lookupDRepDeposit utxo txBody =
   consumedValue <> MaryValue mempty mintedMultiAsset
   where
     mintedMultiAsset = filterMultiAsset (\_ _ -> (> 0)) $ txBody ^. mintTxBodyL
     {- balance (txins tx ◁ u) + wbalance (txwdrls tx) + keyRefunds pp tx -}
     consumedValue =
       balance (txInsFilter utxo (txBody ^. inputsTxBodyL))
+        <> balance (requestsUTxO txBody)
         <> inject (refunds <> withdrawals)
     refunds = getTotalRefundsTxBody pp lookupStakingDeposit lookupDRepDeposit txBody
     withdrawals = fold . unWithdrawals $ txBody ^. withdrawalsTxBodyL
+
+requestsUTxO ::
+  BabelEraTxBody era => TxBody era -> UTxO era
+requestsUTxO tx = UTxO $ mapKeys (TxIn (txIdTxBody tx) . TxIx) (index . toList $ tx ^. requestsTxBodyL)
+  where
+    index :: [a] -> Map.Map Word64 a
+    index = Map.fromList . zip [0 ..]
 
 -- | Compute the lovelace which are created by the transaction
 -- For eras before Conway, VState is expected to have an empty Map for vsDReps, and so deposit summed up is zero.
@@ -743,6 +802,6 @@ babelProducedValueFrxo ::
   TxBody era ->
   FRxO era ->
   Value era
-babelProducedValueFrxo pp isStakePool txBody _frxo =
+babelProducedValueFrxo pp isStakePool txBody frxo =
   babelProducedValue pp isStakePool txBody
-    <+> undefined -- TODO WG ????? balance (frxo (st .utxoTemp) ∣ txb .fulfills)
+    <+> balance (asUtxoWith txInsFilter frxo (txBody ^. fulfillsTxBodyL))

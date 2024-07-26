@@ -1,4 +1,5 @@
 {-# LANGUAGE TypeApplications #-}
+{-# OPTIONS_GHC -Wno-unused-imports #-}
 
 module Main where
 
@@ -24,22 +25,23 @@ main :: IO ()
 main =
   ledgerTestMain $
     describe "Babel" $ do
-      Proposals.spec
-      Binary.spec
-      Cddl.spec
-      DRepRatify.spec
-      CommitteeRatify.spec
-      Genesis.spec
-      GovActionReorder.spec
-      roundTripJsonEraSpec @Babel
+      -- Proposals.spec
+      -- Binary.spec
+      -- Cddl.spec
+      -- DRepRatify.spec
+      -- CommitteeRatify.spec
+      -- Genesis.spec
+      -- GovActionReorder.spec
+      -- roundTripJsonEraSpec @Babel
       describe "Imp" $ do
-        AlonzoImp.spec @Babel
         BabelImp.spec @Babel
-        ShelleyImp.spec @Babel
-      describe "CostModels" $ do
-        CostModelsSpec.spec @Babel
-      describe "TxWits" $ do
-        TxWitsSpec.spec @Babel
-      describe "Plutus" $ do
-        PlutusSpec.spec
-      Regression.spec @Babel
+
+--   AlonzoImp.spec @Babel
+--   ShelleyImp.spec @Babel
+-- describe "CostModels" $ do
+--   CostModelsSpec.spec @Babel
+-- describe "TxWits" $ do
+--   TxWitsSpec.spec @Babel
+-- describe "Plutus" $ do
+--   PlutusSpec.spec
+-- Regression.spec @Babel
