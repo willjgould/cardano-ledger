@@ -89,7 +89,10 @@ import Cardano.Ledger.Alonzo.Rules (
  )
 import Cardano.Ledger.Alonzo.UTxO (AlonzoEraUTxO, AlonzoScriptsNeeded)
 import Cardano.Ledger.Babbage.Collateral (collAdaBalance, collOuts)
-import Cardano.Ledger.Babel.Core (BabbageEraTxBody (totalCollateralTxBodyL), ppMaxTxExUnitsL)
+import Cardano.Ledger.Babel.Core (
+  AlonzoEraTxBody,
+  ppMaxTxExUnitsL,
+ )
 import Cardano.Ledger.Babel.LedgerState.Types (
   LedgerStateTemp,
   fromLedgerState,
@@ -112,12 +115,13 @@ import Cardano.Ledger.Plutus (
  )
 import Cardano.Ledger.Plutus.ExUnits (pointWiseExUnits)
 import Cardano.Ledger.Rules.ValidationMode (Test, runTestOnSignal)
-import Cardano.Ledger.Shelley.LedgerState (updateStakeDistribution)
+import Cardano.Ledger.Shelley.LedgerState (updateStakeDistribution, utxosUtxoL)
 import Cardano.Ledger.Shelley.Rules (
   ShelleyLedgersEvent,
   ShelleyLedgersPredFailure (..),
  )
-import Cardano.Ledger.UTxO (EraUTxO (ScriptsNeeded))
+import Cardano.Ledger.UTxO (EraUTxO (ScriptsNeeded), balance, txInsFilter)
+import Cardano.Ledger.Val (coin)
 import Control.DeepSeq (NFData)
 import Control.Monad.RWS (asks)
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
@@ -355,14 +359,17 @@ zoneTransition =
               , txs :: Seq (Tx era)
               )
           ) -> do
-        let tx = last (Foldable.toList txs) -- TODO WG use safe head
+        let ltx = Foldable.toList txs
+            lsV = init ltx
+            tx = last ltx -- TODO WG use safe head
+            collateralPct = collateralPercentage pParams
+            utxo = utxoState ^. utxosUtxoL
+
         {- ((totSizeZone ltx) ≤ᵇ (Γ .LEnv.pparams .PParams.maxTxSize)) ≡ true -}
         runTestOnSignal $
-          validateMaxTxSizeUTxO pParams (Foldable.toList txs)
+          validateMaxTxSizeUTxO pParams ltx
         -- ((coin (balance  (utxo ∣ tx .body .collateral)) * 100) ≥ᵇ sumCol ltx (Γ .LEnv.pparams .PParams.collateralPercentage)) ≡ true
-        runTestOnSignal $
-          failureUnless (all (checkCollateral pParams txs) (tx ^. bodyTxL . totalCollateralTxBodyL)) $
-            InputSetEmptyUTxO -- InsufficientCollateral undefined undefined -- TODO WG figure the error args out if you have time
+
         if all chkIsValid txs -- ZONE-V
           then do
             -- TODO WG: make sure `runTestOnSignal` is correct rather than `runTest`
@@ -370,9 +377,25 @@ zoneTransition =
             runTestOnSignal $ failureUnless (all (chkRqTx txs) txs) CheckRqTxFailure
             {- noCycles ltx -}
             runTestOnSignal $
-              failureUnless (chkLinear (Foldable.toList txs)) CheckLinearFailure
+              failureUnless (chkLinear ltx) CheckLinearFailure
             {- totExunits tx ≤ maxTxExUnits pp -}
-            runTestOnSignal $ validateExUnitsTooBigUTxO pParams (Foldable.toList txs)
+            runTestOnSignal $ validateExUnitsTooBigUTxO pParams ltx
+
+            {- collForPrec ltx (Γ .LEnv.pparams .PParams.collateralPercentage) utxo (sumCol ltx (Γ .LEnv.pparams .PParams.collateralPercentage)) ≡ just _ -}
+            runTestOnSignal $
+              failureUnless
+                ( collForPrec
+                    (reverse ltx)
+                    collateralPct
+                    utxo
+                    (unCoin $ sumCol ltx collateralPct)
+                )
+                CollForPrecValidFailure
+
+            {- collInUTxO ltx utxo -}
+            runTestOnSignal $
+              failureUnless (collInUTxO ltx utxo) CollInUtxoValidFailure
+
             lsTemp <- -- TODO WG: Should we be checking FRxO is empty before converting?
               trans @(EraRule "LEDGERS" era) $
                 TRC
@@ -385,7 +408,25 @@ zoneTransition =
           do
             -- Check that only the last transaction is invalid
             runTestOnSignal $
-              failureUnless (chkExactlyLastInvalid (Foldable.toList txs)) MoreThanOneInvalidTransaction
+              failureUnless (chkExactlyLastInvalid ltx) MoreThanOneInvalidTransaction
+
+            {- collForPrec ltx (Γ .LEnv.pparams .PParams.collateralPercentage) utxo (sumCol ltx (Γ .LEnv.pparams .PParams.collateralPercentage)) ≡ just _ -}
+            runTestOnSignal $
+              failureUnless
+                ( collForPrec
+                    (lsV ++ [tx])
+                    collateralPct
+                    utxo
+                    (unCoin $ sumCol (lsV ++ [tx]) collateralPct)
+                )
+                CollForPrecInvalidFailure
+
+            {- collInUTxO (lsV ++ [ tx ]) utxo -}
+            runTestOnSignal $
+              failureUnless
+                (collInUTxO (lsV ++ [tx]) utxo)
+                CollInUtxoInvalidFailure
+
             babelEvalScriptsTxInvalid @era
   where
     chkLinear :: [Tx era] -> Bool
@@ -432,13 +473,10 @@ zoneTransition =
         maxTxExUnits = pp ^. ppMaxTxExUnitsL
         -- This sums up the ExUnits for all embedded Plutus Scripts anywhere in the zone:
         totalExUnits = Foldable.foldl' (<>) mempty $ fmap totExUnits txs
-    -- TODO WG: This can probably be rolled in with the main check in the if expression
     chkExactlyLastInvalid :: [Tx era] -> Bool
     chkExactlyLastInvalid txs = case reverse txs of
       (l : txs') -> (l ^. isValidTxL == IsValid False) && all ((== IsValid True) . (^. isValidTxL)) txs'
       [] -> True
-    checkCollateral txs pParams c = unCoin c * 100 >= requiredCollateral txs pParams
-    requiredCollateral pParams txs = unCoin $ sumCol (Foldable.toList txs) (collateralPercentage pParams)
     collateralPercentage pParams = toInteger $ pParams ^. ppCollateralPercentageL
     sumCol :: [Tx era] -> Integer -> Coin
     sumCol tb cp = Coin $ foldr (\tx c -> c + (unCoin (tx ^. bodyTxL . feeTxBodyL) * cp)) 0 tb
@@ -506,16 +544,47 @@ babelEvalScriptsTxInvalid =
     {- utxoDel  = txBody ^. collateralInputsTxBodyL ◁ utxo -}
     let !(utxoKeep, utxoDel) = extractKeys (unUTxO utxo) (txBody ^. collateralInputsTxBodyL)
         UTxO collouts = collOuts txBody
-        DeltaCoin collateralFees = collAdaBalance txBody utxoDel -- NEW to Babbage
+        DeltaCoin collateralFees = collAdaBalance txBody utxoDel
     pure $!
       LedgerState
         us {- (collInputs txb ⋪ utxo) ∪ collouts tx -}
-          { utxosUtxo = UTxO (Map.union utxoKeep collouts) -- NEW to Babbage
-          {- fees + collateralFees -}
-          , utxosFees = fees <> Coin collateralFees -- NEW to Babbage
+          { utxosUtxo = UTxO (Map.union utxoKeep collouts)
+          , {- fees + collateralFees -}
+            utxosFees = fees <> Coin collateralFees
           , utxosStakeDistr = updateStakeDistribution pp (utxosStakeDistr us) (UTxO utxoDel) (UTxO collouts)
           }
         certState
+
+-- check that collateral in each transaction in the list is enough to cover the preceeding ones
+collForPrec ::
+  (EraTx era, AlonzoEraTxBody era) =>
+  [Tx era] ->
+  Integer ->
+  UTxO era ->
+  Integer ->
+  Bool
+collForPrec [] _ _ 0 = True
+collForPrec [] _ _ _ = False
+collForPrec (t : l) cp u c =
+  -- trace
+  --   ( "\n\n Collateral we need: "
+  --       <> show c
+  --       <> "\n\n Collateral we have: "
+  --       <> show (unCoin (coin (balance (txInsFilter u (t ^. bodyTxL . collateralInputsTxBodyL)))))
+  --       <> "\n\n Num TXs: "
+  --       <> show (length (t : l))
+  --       <> "\n\n Collateral Percentage: "
+  --       <> show cp
+  --   )
+  ( c <= unCoin (coin (balance (txInsFilter u (t ^. bodyTxL . collateralInputsTxBodyL))))
+  )
+    && collForPrec l cp u (c - (unCoin (t ^. bodyTxL . feeTxBodyL) * cp))
+
+collInUTxO :: (EraTx era, AlonzoEraTxBody era) => [Tx era] -> UTxO era -> Bool
+collInUTxO [] _ = True
+collInUTxO (t : l) utxo@(UTxO u) =
+  ((t ^. bodyTxL . collateralInputsTxBodyL) `Set.isSubsetOf` Set.fromList (Map.keys u))
+    && collInUTxO l utxo
 
 txInTxId :: TxIn era -> TxId era
 txInTxId (TxIn x _) = x

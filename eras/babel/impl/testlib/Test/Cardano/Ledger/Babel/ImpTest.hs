@@ -570,6 +570,14 @@ makeCollateralInput = do
   (_, addr) <- freshKeyAddr
   withFixup fxupTx $ sendCoinTo addr collateral
 
+makeCollateralInputAccurate ::
+  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
+  Integer ->
+  ImpTestM (BabelEra c) (TxIn (EraCrypto (BabelEra c)))
+makeCollateralInputAccurate c = do
+  (_, addr) <- freshKeyAddr
+  withFixup fxupTx $ sendCoinTo addr (Coin c)
+
 registerInitialCommittee ::
   ( HasCallStack
   , NFData (SigDSIGN (DSIGN c))

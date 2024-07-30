@@ -239,6 +239,10 @@ data BabelUtxoPredFailure era
   | CheckRqTxFailure
   | CheckLinearFailure
   | MoreThanOneInvalidTransaction
+  | CollForPrecValidFailure
+  | CollForPrecInvalidFailure
+  | CollInUtxoValidFailure
+  | CollInUtxoInvalidFailure
   deriving (Generic)
 
 type instance EraRuleFailure "UTXO" (BabelEra c) = BabelUtxoPredFailure (BabelEra c)
@@ -433,7 +437,8 @@ validateBadInputsUTxO ::
   Set (TxIn (EraCrypto era)) ->
   Test (BabelUtxoPredFailure era)
 validateBadInputsUTxO utxo txins =
-  failureUnless (Set.null badInputs) $ BadInputsUTxO badInputs
+  failureUnless (Set.null badInputs) $
+    BadInputsUTxO badInputs
   where
     {- inputs ➖ dom utxo -}
     badInputs = Set.filter (`Map.notMember` unUTxO utxo) txins
@@ -537,6 +542,10 @@ instance
       CheckRqTxFailure -> Sum CheckRqTxFailure 23
       CheckLinearFailure -> Sum CheckLinearFailure 24
       MoreThanOneInvalidTransaction -> Sum MoreThanOneInvalidTransaction 25
+      CollForPrecValidFailure -> Sum CollForPrecValidFailure 26
+      CollForPrecInvalidFailure -> Sum CollForPrecInvalidFailure 27
+      CollInUtxoValidFailure -> Sum CollInUtxoValidFailure 28
+      CollInUtxoInvalidFailure -> Sum CollInUtxoInvalidFailure 29
 
 instance
   ( Era era
@@ -573,6 +582,10 @@ instance
     23 -> SumD CheckRqTxFailure
     24 -> SumD CheckLinearFailure
     25 -> SumD MoreThanOneInvalidTransaction
+    26 -> SumD CollForPrecValidFailure
+    27 -> SumD CollForPrecInvalidFailure
+    28 -> SumD CollInUtxoValidFailure
+    29 -> SumD CollInUtxoInvalidFailure
     n -> Invalid n
 
 -- =====================================================

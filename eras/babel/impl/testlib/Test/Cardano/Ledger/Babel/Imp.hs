@@ -87,7 +87,7 @@ import Data.Typeable (Typeable)
 import Data.Word (Word64)
 import Debug.Trace (trace)
 import qualified GHC.Base as Base
-import Lens.Micro (folded, (&), (.~), (^.), (^..))
+import Lens.Micro (folded, (&), (.~), (<>~), (^.), (^..))
 import Lens.Micro.Extras (view)
 import Lens.Micro.Mtl ((.=))
 import Lens.Micro.Type (Getting, Lens')
@@ -114,6 +114,7 @@ import Test.Cardano.Ledger.Babel.ImpTest (
   impRootTxInL,
   logToExpr,
   lookupImpRootTxOut,
+  makeCollateralInput,
   tryRunImpRule,
   updateAddrTxWits,
   withImpStateWithProtVer,
@@ -262,6 +263,52 @@ trySubmitTx tx = do
       impRootTxInL .= newRoot
       pure $ Right txFixed
 
+trySubmitZone ::
+  HasCallStack =>
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM
+    (BabelEra StandardCrypto)
+    ( Either
+        (Base.NonEmpty (PredicateFailure (EraRule "ZONE" (BabelEra StandardCrypto))))
+        (Tx (BabelEra StandardCrypto))
+    )
+trySubmitZone tx = do
+  txFixed <- asks iteFixup >>= ($ tx)
+  logToExpr txFixed
+  st <- gets impNES
+  lEnv <- impLedgerEnv st
+  ImpTestState {impRootTxIn} <- get
+  LedgerEnv sn _ pp accSt <- impLedgerEnv st
+  res <-
+    tryRunImpRule @"ZONE"
+      (BabelLedgersEnv sn (TxIx 0) pp accSt)
+      (from $ st ^. nesEsL . esLStateL)
+      (Seq.singleton txFixed)
+  case res of
+    Left predFailures -> do
+      -- Verify that produced predicate failures are ready for the node-to-client protocol
+      liftIO $ forM_ predFailures $ roundTripEraExpectation @(BabelEra StandardCrypto)
+      pure $ Left predFailures
+    Right (st', events) -> do
+      let txId = TxId . hashAnnotated $ txFixed ^. bodyTxL
+          outsSize = SSeq.length $ txFixed ^. bodyTxL . outputsTxBodyL
+          rootIndex
+            | outsSize > 0 = outsSize - 1
+            | otherwise = error ("Expected at least 1 output after submitting tx: " <> show txId)
+      tell $ fmap (SomeSTSEvent @(BabelEra StandardCrypto) @"ZONE") events
+      modify $ impNESL . nesEsL . esLStateL .~ from st'
+      UTxO utxo <- getUTxO
+      -- This TxIn is in the utxo, and thus can be the new root, only if the transaction
+      -- was phase2-valid.  Otherwise, no utxo with this id would have been created, and
+      -- so we need to set the new root to what it was before the submission.
+      let assumedNewRoot = TxIn txId (mkTxIxPartial (fromIntegral rootIndex))
+      let newRoot
+            | Map.member assumedNewRoot utxo = assumedNewRoot
+            | Map.member impRootTxIn utxo = impRootTxIn
+            | otherwise = error "Root not found in UTxO"
+      impRootTxInL .= newRoot
+      pure $ Right txFixed
+
 spec2 ::
   SpecWith (ImpTestState (BabelEra StandardCrypto))
 spec2 = describe "UTXOS" $ do
@@ -350,7 +397,7 @@ submitFailingZone ::
   Maybe (Set.Set (Fulfill (EraCrypto (BabelEra StandardCrypto))) -> Tx (BabelEra StandardCrypto)) ->
   Base.NonEmpty (PredicateFailure (EraRule "ZONE" (BabelEra StandardCrypto))) ->
   ImpTestM (BabelEra StandardCrypto) ()
-submitFailingZone ixStart tx fulfills expectedFailure = zone ixStart [tx] [fulfills] >>= (`shouldBeLeftExpr` expectedFailure)
+submitFailingZone ixStart tx fulfills expectedFailure = trySubmitZone tx >>= (`shouldBeLeftExpr` expectedFailure)
 
 zone ::
   HasCallStack =>
@@ -364,9 +411,11 @@ zone ::
         [Tx (BabelEra StandardCrypto)]
     )
 zone ixStart tx fulfills = do
+  -- If you're actually sticking with this collateral hack (just for the prototype), at least make it `zipWith` the txs
+  -- collateralInputTxs <- makeCollateralInput
   txFixed' :: [AlonzoTx (BabelEra StandardCrypto)] <- asks iteFixup >>= for tx
   -- I'm removing the outputs that the fixup adds
-  txFixed <-
+  txFixed :: [AlonzoTx (BabelEra StandardCrypto)] <-
     traverse
       ( updateAddrTxWits
           . ( \tx ->
@@ -379,7 +428,10 @@ zone ixStart tx fulfills = do
                       & witsTxL
                       . addrTxWitsL
                       .~ mempty
-                  else tx
+                  else -- & bodyTxL
+                  -- . collateralInputsTxBodyL
+                  -- .~ Set.singleton collateralInputTxs
+                    tx
             )
       )
       txFixed'
@@ -389,6 +441,8 @@ zone ixStart tx fulfills = do
             (\tx f -> fmap (\f' -> f' (Set.singleton (txInAt (0 :: Int) tx))) f)
             txFixed
             fulfills
+
+  -- collateralInputFfs <- makeCollateralInput
 
   fixedFulfills' <- asks iteFixup >>= for fulfillTxs
   -- I'm removing the outputs and inputs that the fixup adds
@@ -404,16 +458,22 @@ zone ixStart tx fulfills = do
                       .~ mempty
                       & bodyTxL
                       . inputsTxBodyL
-                      .~ Set.filter (\(TxIn _ (TxIx ix)) -> ix /= 0) (tx ^. bodyTxL . inputsTxBodyL)
+                      -- This ridiculous hack is to remove a problematic input being added by the fixups that happens to be at ix 4 in this case
+                      .~ Set.filter (\(TxIn _ (TxIx ix)) -> ix /= 4) (tx ^. bodyTxL . inputsTxBodyL)
                       & witsTxL
                       . addrTxWitsL
                       .~ mempty
-                  else tx
+                  else -- & bodyTxL
+                  -- . collateralInputsTxBodyL
+                  -- .~ Set.singleton collateralInputFfs
+                    tx
             )
       )
       fixedFulfills'
 
-  traverse_ logToExpr txFixed
+  traverse_
+    logToExpr
+    txFixed
   st <- gets impNES
   let newEpochStateLedgerState = st ^. nesEsL . esLStateL
   LedgerEnv sn _ pp accSt <- impLedgerEnv st
@@ -462,33 +522,54 @@ spec3 ::
   SpecWith (ImpTestState (BabelEra StandardCrypto))
 spec3 = describe "ZONE" $ do
   it "fails with requiredTx from different zone" $ do
-    txId <-
-      fmap (txInAt @Int @(BabelEra StandardCrypto) (0 :: Int))
-        <$> submitTxAnnZone
-          0
-          "Sumbit a transaction with a script output"
-          [mkBasicTx mkBasicTxBody]
-          mempty
+    (_, addr1) <- freshKeyAddr
+    (_, addr2) <- freshKeyAddr
+    (_, addr3) <- freshKeyAddr
+
+    let ffTx addr' amt =
+          mkBasicTxOut
+            addr'
+            (inject (Coin amt))
+
+    tx <-
+      submitTxAnn
+        "Sumbit a transaction with a script output"
+        $ mkBasicTx mkBasicTxBody
+          & bodyTxL
+          . outputsTxBodyL
+          .~ SSeq.fromList
+            [ ffTx addr1 972746368
+            , ffTx addr2 26904150
+            , ffTx addr3 179361
+            ]
+    let tx1 = txInAt @Int @(BabelEra StandardCrypto) (0 :: Int) tx
+        tx2 = txInAt @Int @(BabelEra StandardCrypto) (1 :: Int) tx
+        tx3 = txInAt @Int @(BabelEra StandardCrypto) (2 :: Int) tx
     void $
       submitFailingZone
         0
         ( mkBasicTx mkBasicTxBody
             & bodyTxL
             . requiredTxsTxBodyL
-            .~ Set.fromList txId
+            .~ Set.singleton tx1
+            & bodyTxL
+            . collateralInputsTxBodyL
+            .~ Set.singleton tx2
+            & bodyTxL
+            . inputsTxBodyL
+            .~ Set.singleton tx3
         )
         Nothing
         (injectFailure (CheckRqTxFailure @(BabelEra StandardCrypto)) Base.:| [])
-  it "succeeds with a zone submission" $ do
+  it "succeeds with a simple zone submission" $ do
     st <- gets impNES
     lEnv <- impLedgerEnv st
-    (_, addr) <- freshKeyAddr
+    (_, addr1) <- freshKeyAddr
     (_, addr2) <- freshKeyAddr
     (_, addr3) <- freshKeyAddr
     (_, addr4) <- freshKeyAddr
-    (_, addr5) <- freshKeyAddr
-    (_, addr6) <- freshKeyAddr
-    (_, addr7) <- freshKeyAddr
+    (_, addrCollatReq) <- freshKeyAddr
+    (_, addrCollatFf) <- freshKeyAddr
 
     let ffTx addr' amt =
           mkBasicTxOut
@@ -498,31 +579,38 @@ spec3 = describe "ZONE" $ do
     rootTxIn <- fst <$> lookupImpRootTxOut
 
     tx <-
-      submitTxAnnZone
-        0
+      submitTxAnn
         "Sumbit a transaction with a script output"
-        [ mkBasicTx mkBasicTxBody
-            & bodyTxL
-            . outputsTxBodyL
-            .~ SSeq.fromList [ffTx addr 499915741, ffTx addr2 499915741]
-        ]
-        [Nothing]
+        $ mkBasicTx mkBasicTxBody
+          & bodyTxL
+          . outputsTxBodyL
+          .~ SSeq.fromList
+            [ ffTx addr1 418802143
+            , ffTx addr2 499911058
+            , ffTx addrCollatReq 27108750
+            , ffTx addrCollatFf 54006300
+            ]
 
-    let tx1 = fmap (txInAt @Int @(BabelEra StandardCrypto) (0 :: Int)) tx
-        tx2 = fmap (txInAt @Int @(BabelEra StandardCrypto) (1 :: Int)) tx
+    let tx1 = txInAt @Int @(BabelEra StandardCrypto) (0 :: Int) tx
+        tx2 = txInAt @Int @(BabelEra StandardCrypto) (1 :: Int) tx
+        txCollatReq = txInAt @Int @(BabelEra StandardCrypto) (2 :: Int) tx
+        txCollatFf = txInAt @Int @(BabelEra StandardCrypto) (3 :: Int) tx
 
     let
       requestTx' =
         mkBasicTx mkBasicTxBody
           & bodyTxL
           . requestsTxBodyL
-          .~ SSeq.singleton (ffTx addr3 499741220)
+          .~ SSeq.singleton (ffTx addr3 499731741)
           & bodyTxL
           . inputsTxBodyL
-          .~ Set.singleton (head tx1)
+          .~ Set.singleton tx1
           & bodyTxL
           . outputsTxBodyL
-          .~ SSeq.singleton (ffTx addr7 999488512)
+          .~ SSeq.singleton (ffTx addr4 918353159)
+          & bodyTxL
+          . collateralInputsTxBodyL
+          .~ Set.singleton txCollatReq
 
     let fulfillTx :: Set.Set (Fulfill (EraCrypto (BabelEra StandardCrypto))) -> Tx (BabelEra StandardCrypto)
         fulfillTx fulfills =
@@ -532,10 +620,10 @@ spec3 = describe "ZONE" $ do
             .~ fulfills
             & bodyTxL
             . inputsTxBodyL
-            .~ Set.singleton (last tx2)
+            .~ Set.singleton tx2
             & bodyTxL
-            . outputsTxBodyL
-            .~ SSeq.singleton (ffTx addr6 0)
+            . collateralInputsTxBodyL
+            .~ Set.singleton txCollatFf
 
     submitTxAnnZone_
       0
