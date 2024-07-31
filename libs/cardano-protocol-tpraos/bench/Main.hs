@@ -43,25 +43,59 @@ import Text.Printf (printf)
 main :: IO ()
 main = defaultMain benchmarks
 
+-- | This is a strict version of &&.
+(&&!) :: Bool -> Bool -> Bool
+True &&! True = True
+True &&! False = False
+False &&! True = False
+False &&! False = False
+
 benchmarks :: [Benchmark]
 benchmarks =
   [ bgroup
       "checkLeaderNatValue"
-      [ bench "ones" $
+      [ bench
+          "0.01%"
+          $ nf
+            ( \x ->
+                checkLeaderNatValue (assertBoundedNatural 10 1) (1 % 10000) x
+                  &&! checkLeaderNatValue (assertBoundedNatural 10 1) (1 % 10000) x
+            )
+            (mkActiveSlotCoeff $ PositiveUnitInterval $ BoundedRatio $ 1 % 10)
+      , bench "0.1%" $
           nf
-            (checkLeaderNatValue (assertBoundedNatural 1 1) (1 % 1))
-            (mkActiveSlotCoeff $ PositiveUnitInterval $ BoundedRatio $ 1 % 1)
-      , bench "lower-range" $
+            ( \x ->
+                checkLeaderNatValue (assertBoundedNatural 10 1) (1 % 1000) x
+                  &&! checkLeaderNatValue (assertBoundedNatural 10 1) (1 % 1000) x
+            )
+            (mkActiveSlotCoeff $ PositiveUnitInterval $ BoundedRatio $ 1 % 10)
+      , bench "1%" $
           nf
-            (checkLeaderNatValue (assertBoundedNatural 1000000 1) (1 % 1000000))
-            (mkActiveSlotCoeff $ PositiveUnitInterval $ BoundedRatio $ 1 % 1000000)
-      , bench "mid-range" $
+            ( \x ->
+                checkLeaderNatValue (assertBoundedNatural 10 1) (1 % 100) x
+                  &&! checkLeaderNatValue (assertBoundedNatural 10 1) (1 % 100) x
+            )
+            (mkActiveSlotCoeff $ PositiveUnitInterval $ BoundedRatio $ 1 % 10)
+      , bench "2%" $
           nf
-            (checkLeaderNatValue (assertBoundedNatural 1000 500) (1 % 2))
-            (mkActiveSlotCoeff $ PositiveUnitInterval $ BoundedRatio $ 1 % 2)
-      , bench "upper-range" $
+            ( \x ->
+                checkLeaderNatValue (assertBoundedNatural 10 1) (1 % 50) x
+                  &&! checkLeaderNatValue (assertBoundedNatural 10 1) (1 % 50) x
+            )
+            (mkActiveSlotCoeff $ PositiveUnitInterval $ BoundedRatio $ 1 % 10)
+      , bench "5%" $
           nf
-            (checkLeaderNatValue (assertBoundedNatural 1000000 999999) (999999 % 1000000))
-            (mkActiveSlotCoeff $ PositiveUnitInterval $ BoundedRatio $ 999999 % 1000000)
+            ( \x ->
+                checkLeaderNatValue (assertBoundedNatural 10 1) (1 % 20) x
+                  &&! checkLeaderNatValue (assertBoundedNatural 10 1) (1 % 20) x
+            )
+            (mkActiveSlotCoeff $ PositiveUnitInterval $ BoundedRatio $ 1 % 10)
+      , bench "10%" $
+          nf
+            ( \x ->
+                checkLeaderNatValue (assertBoundedNatural 10 1) (1 % 10) x
+                  &&! checkLeaderNatValue (assertBoundedNatural 10 1) (1 % 10) x
+            )
+            (mkActiveSlotCoeff $ PositiveUnitInterval $ BoundedRatio $ 1 % 10)
       ]
   ]
