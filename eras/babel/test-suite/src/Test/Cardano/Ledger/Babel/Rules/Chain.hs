@@ -277,7 +277,7 @@ instance
   , Signal (EraRule "TICK" era) ~ SlotNo
   , Embed (PRTCL (EraCrypto era)) (CHAIN era)
   , EncCBORGroup (TxZones era)
-  , ProtVerAtMost era 10
+  , ProtVerAtMost era 12
   , State (EraRule "ZONES" era) ~ LedgerState era
   , State (EraRule (EraFirstRule era) era) ~ LedgerState era
   , State (Core.EraRule "LEDGERS" era) ~ LedgerStateTemp era
