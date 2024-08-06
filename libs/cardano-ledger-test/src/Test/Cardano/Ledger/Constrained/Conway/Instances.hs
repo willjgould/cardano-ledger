@@ -1262,16 +1262,6 @@ instance
 instance HasSimpleRep (UtxoEnv (ConwayEra StandardCrypto))
 instance IsConwayUniv fn => HasSpec fn (UtxoEnv (ConwayEra StandardCrypto))
 
--- TODO WG Why do we need these instances?
--- instance HasSimpleRep (ShelleyRequiredTxRaw (ConwayEra StandardCrypto))
--- instance IsConwayUniv fn => HasSpec fn (ShelleyRequiredTxRaw (ConwayEra StandardCrypto))
-
--- instance HasSimpleRep (MemoBytes ShelleyRequiredTxRaw (ConwayEra StandardCrypto))
--- instance IsConwayUniv fn => HasSpec fn (MemoBytes ShelleyRequiredTxRaw (ConwayEra StandardCrypto))
-
--- instance HasSimpleRep (ShelleyRequiredTx (ConwayEra StandardCrypto))
--- instance IsConwayUniv fn => HasSpec fn (ShelleyRequiredTx (ConwayEra StandardCrypto))
-
 instance HasSimpleRep (AlonzoTx (ConwayEra StandardCrypto))
 instance IsConwayUniv fn => HasSpec fn (AlonzoTx (ConwayEra StandardCrypto))
 
