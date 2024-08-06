@@ -107,7 +107,7 @@ import qualified Cardano.Ledger.Shelley.Rules as Shelley (
   validateWrongNetwork,
   validateWrongNetworkWithdrawal,
  )
-import Cardano.Ledger.TxIn (TxIn (..))
+import Cardano.Ledger.TxIn (Fulfill, TxIn (..))
 import Cardano.Ledger.UTxO (EraUTxO, UTxO (..), balance, txInsFilter)
 import Cardano.Ledger.Val ((<+>))
 import Control.DeepSeq (NFData)
@@ -239,10 +239,12 @@ data BabelUtxoPredFailure era
   | CheckRqTxFailure
   | CheckLinearFailure
   | MoreThanOneInvalidTransaction
-  | CollForPrecValidFailure
-  | CollForPrecInvalidFailure
+  | CollForPrecValidFailure !Coin
+  | CollForPrecInvalidFailure !Coin
   | CollInUtxoValidFailure
   | CollInUtxoInvalidFailure
+  | BadFulfillsFRxO
+      !(Set (Fulfill (EraCrypto era)))
   deriving (Generic)
 
 type instance EraRuleFailure "UTXO" (BabelEra c) = BabelUtxoPredFailure (BabelEra c)
@@ -372,11 +374,6 @@ utxoTransition = do
   sysSt <- liftSTS $ asks systemStart
   ei <- liftSTS $ asks epochInfo
 
-  runTestOnSignal $
-    failureUnless
-      ((txBody ^. fulfillsTxBodyL) `isSubsetOf` keysSet (unFRxO frxo))
-      MoreThanOneInvalidTransaction -- TODO WG obviously nonsense error
-
   {- epochInfoSlotToUTCTime epochInfo systemTime i_f ≠ ◇ -}
   runTest $ Alonzo.validateOutsideForecast ei slot sysSt tx
 
@@ -386,9 +383,11 @@ utxoTransition = do
   {-   feesOK pp tx utxo   -}
   validate $ feesOK pp tx utxo frxo -- Generalizes the fee to small from earlier Era's
 
+  {- fulfills ⊆ dom (frxo utxoTemp) -}
+  runTestOnSignal $ validateBadInputsFRxO frxo (txBody ^. fulfillsTxBodyL)
+
   {- allInputs = spendInputs txb ∪ collInputs txb ∪ refInputs txb -}
   {- (spendInputs txb ∪ collInputs txb ∪ refInputs txb) ⊆ dom utxo   -}
-  -- TODO WG: I don't THINK this needs to do anything with FRXO but make sure
   runTest $ validateBadInputsUTxO utxo allInputs
 
   {- consumed pp utxo txb = produced pp poolParams txb -}
@@ -442,6 +441,17 @@ validateBadInputsUTxO utxo txins =
   where
     {- inputs ➖ dom utxo -}
     badInputs = Set.filter (`Map.notMember` unUTxO utxo) txins
+
+validateBadInputsFRxO ::
+  FRxO era ->
+  Set (Fulfill (EraCrypto era)) ->
+  Test (BabelUtxoPredFailure era)
+validateBadInputsFRxO frxo fulfills =
+  failureUnless (Set.null badFulfills) $
+    BadFulfillsFRxO badFulfills
+  where
+    {- fulfills ➖ dom frxo -}
+    badFulfills = Set.filter (`Map.notMember` unFRxO frxo) fulfills
 
 -- \| Test that inputs and refInpts are disjoint, in Babel and later Eras.
 disjointRefInputs ::
@@ -542,10 +552,11 @@ instance
       CheckRqTxFailure -> Sum CheckRqTxFailure 23
       CheckLinearFailure -> Sum CheckLinearFailure 24
       MoreThanOneInvalidTransaction -> Sum MoreThanOneInvalidTransaction 25
-      CollForPrecValidFailure -> Sum CollForPrecValidFailure 26
-      CollForPrecInvalidFailure -> Sum CollForPrecInvalidFailure 27
+      CollForPrecValidFailure c -> Sum CollForPrecValidFailure 26 !> To c
+      CollForPrecInvalidFailure c -> Sum CollForPrecInvalidFailure 27 !> To c
       CollInUtxoValidFailure -> Sum CollInUtxoValidFailure 28
       CollInUtxoInvalidFailure -> Sum CollInUtxoInvalidFailure 29
+      BadFulfillsFRxO fs -> Sum (BadFulfillsFRxO @era) 30 !> To fs
 
 instance
   ( Era era
@@ -582,10 +593,11 @@ instance
     23 -> SumD CheckRqTxFailure
     24 -> SumD CheckLinearFailure
     25 -> SumD MoreThanOneInvalidTransaction
-    26 -> SumD CollForPrecValidFailure
-    27 -> SumD CollForPrecInvalidFailure
+    26 -> SumD CollForPrecValidFailure <! From
+    27 -> SumD CollForPrecInvalidFailure <! From
     28 -> SumD CollInUtxoValidFailure
     29 -> SumD CollInUtxoInvalidFailure
+    30 -> SumD BadFulfillsFRxO <! From
     n -> Invalid n
 
 -- =====================================================

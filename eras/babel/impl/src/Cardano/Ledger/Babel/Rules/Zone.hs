@@ -123,13 +123,14 @@ import Cardano.Ledger.Shelley.Rules (
 import Cardano.Ledger.UTxO (EraUTxO (ScriptsNeeded), balance, txInsFilter)
 import Cardano.Ledger.Val (coin)
 import Control.DeepSeq (NFData)
+import Control.Monad (unless)
 import Control.Monad.RWS (asks)
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import qualified Data.Map as Map
 import Data.MapExtras (extractKeys)
 import Debug.Trace (traceEvent)
 import NoThunks.Class (NoThunks)
-import Validation (failureUnless)
+import Validation (failure, failureUnless)
 
 data BabelZonePredFailure era
   = LedgersFailure (PredicateFailure (BabelLEDGERS era)) -- Subtransition Failures
@@ -382,15 +383,15 @@ zoneTransition =
             runTestOnSignal $ validateExUnitsTooBigUTxO pParams ltx
 
             {- collForPrec ltx (Γ .LEnv.pparams .PParams.collateralPercentage) utxo (sumCol ltx (Γ .LEnv.pparams .PParams.collateralPercentage)) ≡ just _ -}
-            runTestOnSignal $
-              failureUnless
-                ( collForPrec
+            let res =
+                  collForPrec
                     (reverse ltx)
                     collateralPct
                     utxo
                     (unCoin $ sumCol ltx collateralPct)
-                )
-                CollForPrecValidFailure
+            case res of
+              Left e -> runTestOnSignal $ failure e
+              _ -> pure ()
 
             {- collInUTxO ltx utxo -}
             runTestOnSignal $
@@ -411,15 +412,16 @@ zoneTransition =
               failureUnless (chkExactlyLastInvalid ltx) MoreThanOneInvalidTransaction
 
             {- collForPrec ltx (Γ .LEnv.pparams .PParams.collateralPercentage) utxo (sumCol ltx (Γ .LEnv.pparams .PParams.collateralPercentage)) ≡ just _ -}
-            runTestOnSignal $
-              failureUnless
-                ( collForPrec
-                    (lsV ++ [tx])
+            let res =
+                  collForPrec
+                    (reverse (lsV ++ [tx]))
                     collateralPct
                     utxo
                     (unCoin $ sumCol (lsV ++ [tx]) collateralPct)
-                )
-                CollForPrecInvalidFailure
+
+            case res of
+              Left e -> runTestOnSignal $ failure e
+              _ -> pure ()
 
             {- collInUTxO (lsV ++ [ tx ]) utxo -}
             runTestOnSignal $
@@ -562,9 +564,9 @@ collForPrec ::
   Integer ->
   UTxO era ->
   Integer ->
-  Bool
-collForPrec [] _ _ 0 = True
-collForPrec [] _ _ _ = False
+  Either (BabelUtxoPredFailure era) ()
+collForPrec [] _ _ 0 = Right ()
+collForPrec [] _ _ c = Left $ CollForPrecValidFailure (Coin c)
 collForPrec (t : l) cp u c =
   -- trace
   --   ( "\n\n Collateral we need: "
@@ -576,9 +578,10 @@ collForPrec (t : l) cp u c =
   --       <> "\n\n Collateral Percentage: "
   --       <> show cp
   --   )
-  ( c <= unCoin (coin (balance (txInsFilter u (t ^. bodyTxL . collateralInputsTxBodyL))))
-  )
-    && collForPrec l cp u (c - (unCoin (t ^. bodyTxL . feeTxBodyL) * cp))
+  let collateralPossessed = unCoin (coin (balance (txInsFilter u (t ^. bodyTxL . collateralInputsTxBodyL))))
+   in do
+        unless (c <= collateralPossessed) (Left $ CollForPrecValidFailure (Coin $ c - collateralPossessed))
+        collForPrec l cp u (c - (unCoin (t ^. bodyTxL . feeTxBodyL) * cp))
 
 collInUTxO :: (EraTx era, AlonzoEraTxBody era) => [Tx era] -> UTxO era -> Bool
 collInUTxO [] _ = True
