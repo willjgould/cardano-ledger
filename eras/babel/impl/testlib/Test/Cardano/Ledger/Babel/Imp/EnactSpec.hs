@@ -16,7 +16,7 @@ module Test.Cardano.Ledger.Babel.Imp.EnactSpec (
 
 -- import Cardano.Ledger.Address
 -- import Cardano.Ledger.Babel.Core
--- import Cardano.Ledger.Babel.LedgerState.Types (LedgerStateTemp)
+-- import Cardano.Ledger.Babel.LedgerState.Types (LedgerState)
 -- import Cardano.Ledger.BaseTypes
 -- import Cardano.Ledger.Coin
 -- import Cardano.Ledger.Conway.Governance
@@ -160,7 +160,7 @@ module Test.Cardano.Ledger.Babel.Imp.EnactSpec (
 --       impAnn "submit in individual proposals in the same epoch" $ do
 --         traverse_
 --           ( \w -> do
---               gaId <- submitTreasuryWithdrawals @LedgerStateTemp @era [w]
+--               gaId <- submitTreasuryWithdrawals @LedgerState @era [w]
 --               submitYesVote_ (DRepVoter drepC) gaId
 --               submitYesVote_ (CommitteeVoter committeeC) gaId
 --           )

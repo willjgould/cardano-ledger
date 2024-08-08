@@ -37,12 +37,13 @@ import Cardano.Ledger.Alonzo.Plutus.Evaluate (CollectError)
 import Cardano.Ledger.Babel.Core
 import Cardano.Ledger.Babel.Genesis (BabelGenesis (..))
 import Cardano.Ledger.Babel.Rules
-import Cardano.Ledger.Babel.Scripts (BabelPlutusPurpose (..))
+import Cardano.Ledger.Babel.Scripts
 import Cardano.Ledger.Babel.TxBody (BabelTxBody (BabelTxBody))
 import Cardano.Ledger.Babel.TxCert
 import Cardano.Ledger.Babel.TxInfo (BabelContextError)
 import Cardano.Ledger.BaseTypes (StrictMaybe (..))
 import Cardano.Ledger.Binary (Sized)
+import Cardano.Ledger.Conway.Core (ConwayEraTxBody)
 import Cardano.Ledger.Conway.Governance
 import Cardano.Ledger.Crypto (Crypto)
 import Control.State.Transition.Extended (STS (PredicateFailure))
@@ -62,7 +63,7 @@ import Test.Cardano.Ledger.Common
 import Test.Cardano.Ledger.Conway.Arbitrary ()
 
 instance
-  ( BabelEraTxBody era
+  ( ConwayEraTxBody era
   , Arbitrary (Sized (TxOut era))
   , Arbitrary (TxOut era)
   , Arbitrary (Value era)
@@ -85,9 +86,6 @@ instance
       <*> scale (`div` 15) arbitrary
       <*> arbitrary
       <*> scale (`div` 15) arbitrary
-      <*> arbitrary
-      <*> arbitrary
-      <*> arbitrary
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary

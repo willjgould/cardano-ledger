@@ -15,13 +15,10 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Cardano.Ledger.Babel.Scripts (
-  BabelEraScript (..),
   AlonzoScript (..),
   PlutusScript (..),
   isPlutusScript,
   BabelPlutusPurpose (..),
-  pattern VotingPurpose,
-  pattern ProposingPurpose,
 )
 where
 
@@ -47,7 +44,11 @@ import Cardano.Ledger.Binary (
   encodeWord8,
  )
 import Cardano.Ledger.Conway.Governance
-import Cardano.Ledger.Conway.Scripts (ConwayPlutusPurpose (..), PlutusScript (..))
+import Cardano.Ledger.Conway.Scripts (
+  ConwayEraScript (..),
+  ConwayPlutusPurpose (..),
+  PlutusScript (..),
+ )
 import Cardano.Ledger.Crypto
 import Cardano.Ledger.Mary.Value (PolicyID)
 import Cardano.Ledger.Plutus.Language
@@ -59,15 +60,6 @@ import Data.Typeable
 import Data.Word (Word16, Word32, Word8)
 import GHC.Generics
 import NoThunks.Class (NoThunks (..))
-
-class AlonzoEraScript era => BabelEraScript era where
-  mkVotingPurpose :: f Word32 (Voter (EraCrypto era)) -> PlutusPurpose f era
-
-  toVotingPurpose :: PlutusPurpose f era -> Maybe (f Word32 (Voter (EraCrypto era)))
-
-  mkProposingPurpose :: f Word32 (ProposalProcedure era) -> PlutusPurpose f era
-
-  toProposingPurpose :: PlutusPurpose f era -> Maybe (f Word32 (ProposalProcedure era))
 
 instance Crypto c => EraScript (BabelEra c) where
   type Script (BabelEra c) = AlonzoScript (BabelEra c)
@@ -86,6 +78,17 @@ instance Crypto c => EraScript (BabelEra c) where
     _ -> Nothing
 
   fromNativeScript = TimelockScript
+
+instance Crypto c => ConwayEraScript (BabelEra c) where
+  mkVotingPurpose = BabelVoting
+
+  toVotingPurpose (BabelVoting i) = Just i
+  toVotingPurpose _ = Nothing
+
+  mkProposingPurpose = BabelProposing
+
+  toProposingPurpose (BabelProposing i) = Just i
+  toProposingPurpose _ = Nothing
 
 instance Crypto c => AlonzoEraScript (BabelEra c) where
   data PlutusScript (BabelEra c)
@@ -146,17 +149,6 @@ instance Crypto c => AlonzoEraScript (BabelEra c) where
     ConwayRewarding (AsIx ix) -> BabelRewarding (AsIx ix)
     ConwayVoting (AsIx ix) -> BabelVoting (AsIx ix)
     ConwayProposing (AsIx ix) -> BabelProposing (AsIx ix)
-
-instance Crypto c => BabelEraScript (BabelEra c) where
-  mkVotingPurpose = BabelVoting
-
-  toVotingPurpose (BabelVoting i) = Just i
-  toVotingPurpose _ = Nothing
-
-  mkProposingPurpose = BabelProposing
-
-  toProposingPurpose (BabelProposing i) = Just i
-  toProposingPurpose _ = Nothing
 
 instance NFData (PlutusScript (BabelEra c)) where
   rnf = rwhnf
@@ -273,15 +265,3 @@ instance
     BabelProposing n -> kindObjectWithValue "BabelProposing" n
     where
       kindObjectWithValue name n = kindObject name ["value" .= n]
-
-pattern VotingPurpose ::
-  BabelEraScript era => f Word32 (Voter (EraCrypto era)) -> PlutusPurpose f era
-pattern VotingPurpose c <- (toVotingPurpose -> Just c)
-  where
-    VotingPurpose c = mkVotingPurpose c
-
-pattern ProposingPurpose ::
-  BabelEraScript era => f Word32 (ProposalProcedure era) -> PlutusPurpose f era
-pattern ProposingPurpose c <- (toProposingPurpose -> Just c)
-  where
-    ProposingPurpose c = mkProposingPurpose c

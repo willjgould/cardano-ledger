@@ -19,7 +19,6 @@ import Cardano.Ledger.Babbage (BabbageEra)
 import Cardano.Ledger.Core
 import Cardano.Ledger.Crypto (Crypto (..))
 import Cardano.Ledger.Plutus.Language (SLanguage (..))
-import Cardano.Ledger.Shelley.LedgerState (LedgerState)
 import Lens.Micro.Mtl ((%=))
 import Test.Cardano.Ledger.Alonzo.ImpTest
 import Test.Cardano.Ledger.Babbage.TreeDiff ()
@@ -32,13 +31,13 @@ instance
   , DSIGN c ~ Ed25519DSIGN
   , Signable (DSIGN c) (Hash (HASH c) EraIndependentTxBody)
   ) =>
-  ShelleyEraImp LedgerState (BabbageEra c)
+  ShelleyEraImp (BabbageEra c)
   where
   initImpTestState = impNESL %= initAlonzoImpNES
   impSatisfyNativeScript = impAllegraSatisfyNativeScript
   fixupTx = alonzoFixupTx
 
-instance ShelleyEraImp ls (BabbageEra c) => MaryEraImp ls (BabbageEra c)
+instance ShelleyEraImp (BabbageEra c) => MaryEraImp (BabbageEra c)
 
-instance ShelleyEraImp ls (BabbageEra c) => AlonzoEraImp ls (BabbageEra c) where
+instance ShelleyEraImp (BabbageEra c) => AlonzoEraImp (BabbageEra c) where
   scriptTestContexts = plutusTestScripts SPlutusV1 <> plutusTestScripts SPlutusV2

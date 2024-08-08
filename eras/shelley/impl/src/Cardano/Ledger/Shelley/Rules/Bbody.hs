@@ -29,7 +29,7 @@ import Cardano.Ledger.Block (Block (..))
 import Cardano.Ledger.Core
 import Cardano.Ledger.Keys (DSignable, Hash, coerceKeyRole)
 import Cardano.Ledger.Shelley.BlockChain (incrBlocks)
-import Cardano.Ledger.Shelley.Era (EraFirstRule, ShelleyBBODY, ShelleyEra)
+import Cardano.Ledger.Shelley.Era (ShelleyBBODY, ShelleyEra)
 import Cardano.Ledger.Shelley.LedgerState (AccountState)
 import Cardano.Ledger.Shelley.Rules.Deleg (ShelleyDelegPredFailure)
 import Cardano.Ledger.Shelley.Rules.Delegs (ShelleyDelegsPredFailure)
@@ -58,14 +58,12 @@ import GHC.Generics (Generic)
 import Lens.Micro ((^.))
 import NoThunks.Class (NoThunks (..))
 
-{- CIP-0118#shelley-bbody-state -}
 data ShelleyBbodyState era
-  = BbodyState !(State (EraRule (EraFirstRule era) era)) !(BlocksMade (EraCrypto era))
+  = BbodyState !(State (EraRule "LEDGERS" era)) !(BlocksMade (EraCrypto era))
 
-deriving stock instance
-  Show (State (EraRule (EraFirstRule era) era)) => Show (ShelleyBbodyState era)
+deriving stock instance Show (State (EraRule "LEDGERS" era)) => Show (ShelleyBbodyState era)
 
-deriving stock instance Eq (State (EraRule (EraFirstRule era) era)) => Eq (ShelleyBbodyState era)
+deriving stock instance Eq (State (EraRule "LEDGERS" era)) => Eq (ShelleyBbodyState era)
 
 data BbodyEnv era = BbodyEnv
   { bbodyPp :: PParams era
@@ -140,7 +138,6 @@ instance
   , Embed (EraRule "LEDGERS" era) (ShelleyBBODY era)
   , Environment (EraRule "LEDGERS" era) ~ ShelleyLedgersEnv era
   , Signal (EraRule "LEDGERS" era) ~ Seq (Tx era)
-  , State (EraRule (EraFirstRule era) era) ~ State (EraRule "LEDGERS" era)
   ) =>
   STS (ShelleyBBODY era)
   where
@@ -170,7 +167,6 @@ bbodyTransition ::
   , Embed (EraRule "LEDGERS" era) (ShelleyBBODY era)
   , Environment (EraRule "LEDGERS" era) ~ ShelleyLedgersEnv era
   , Signal (EraRule "LEDGERS" era) ~ Seq (Tx era)
-  , State (EraRule (EraFirstRule era) era) ~ State (EraRule "LEDGERS" era)
   ) =>
   TransitionRule (ShelleyBBODY era)
 bbodyTransition =

@@ -19,7 +19,6 @@ module Cardano.Ledger.Babel.Rules.Ledgers (BabelLEDGERS, BabelLedgersEnv (..)) w
 
 import Cardano.Ledger.Alonzo.Rules (AlonzoUtxosPredFailure)
 import Cardano.Ledger.Babel.Era (BabelEra, BabelLEDGERS)
-import Cardano.Ledger.Babel.LedgerState.Types (LedgerStateTemp)
 import Cardano.Ledger.Babel.Rules.Ledger (BabelLEDGER, BabelLedgerEvent, BabelLedgerPredFailure)
 import Cardano.Ledger.Babel.Rules.Pool ()
 import Cardano.Ledger.Babel.Rules.Utxo (BabelUtxoPredFailure)
@@ -48,6 +47,7 @@ import Data.Default.Class (Default)
 import Data.Foldable (toList)
 import Data.Sequence (Seq)
 import GHC.Generics (Generic)
+import Cardano.Ledger.Shelley.LedgerState (LedgerState)
 
 data BabelLedgersEnv era = BabelLedgersEnv
   { ledgerSlotNo :: !SlotNo
@@ -82,14 +82,14 @@ instance
   ( Era era
   , Embed (EraRule "LEDGER" era) (BabelLEDGERS era)
   , Environment (EraRule "LEDGER" era) ~ LedgerEnv era
-  , State (EraRule "LEDGER" era) ~ LedgerStateTemp era
+  , State (EraRule "LEDGER" era) ~ LedgerState era
   , Signal (EraRule "LEDGER" era) ~ Tx era
   , DSignable (EraCrypto era) (Hash (EraCrypto era) EraIndependentTxBody)
-  , Default (LedgerStateTemp era)
+  , Default (LedgerState era)
   ) =>
   STS (BabelLEDGERS era)
   where
-  type State (BabelLEDGERS era) = LedgerStateTemp era
+  type State (BabelLEDGERS era) = LedgerState era
   type Signal (BabelLEDGERS era) = Seq (Tx era)
   type Environment (BabelLEDGERS era) = BabelLedgersEnv era
   type BaseM (BabelLEDGERS era) = ShelleyBase
@@ -105,7 +105,7 @@ ledgersTransition ::
   forall era.
   ( Embed (EraRule "LEDGER" era) (BabelLEDGERS era)
   , Environment (EraRule "LEDGER" era) ~ LedgerEnv era
-  , State (EraRule "LEDGER" era) ~ LedgerStateTemp era
+  , State (EraRule "LEDGER" era) ~ LedgerState era
   , Signal (EraRule "LEDGER" era) ~ Tx era
   ) =>
   TransitionRule (BabelLEDGERS era)

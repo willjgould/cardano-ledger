@@ -52,7 +52,7 @@ import Cardano.Ledger.Keys (
   coerceKeyRole,
  )
 import Cardano.Ledger.PoolDistr (PoolDistr (..))
-import Cardano.Ledger.Shelley (EraFirstRule, ShelleyEra)
+import Cardano.Ledger.Shelley (ShelleyEra)
 import Cardano.Ledger.Shelley.AdaPots (
   AdaPots (..),
   totalAdaES,
@@ -277,7 +277,6 @@ instance
   , EncCBORGroup (TxZones era)
   , ProtVerAtMost era 6
   , State (Core.EraRule "LEDGERS" era) ~ LedgerState era
-  , State (EraRule (EraFirstRule era) era) ~ State (EraRule "LEDGERS" era)
   ) =>
   STS (CHAIN era)
   where
@@ -317,7 +316,6 @@ chainTransition ::
   , EncCBORGroup (TxZones era)
   , ProtVerAtMost era 6
   , State (Core.EraRule "LEDGERS" era) ~ LedgerState era
-  , State (EraRule (EraFirstRule era) era) ~ State (EraRule "LEDGERS" era)
   , EraGov era
   ) =>
   TransitionRule (CHAIN era)

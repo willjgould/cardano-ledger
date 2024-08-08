@@ -16,7 +16,7 @@ import Test.Cardano.Ledger.Imp.Common
 import Test.Cardano.Ledger.Shelley.ImpTest
 
 spec ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , InjectRuleFailure "LEDGER" ShelleyUtxoPredFailure era
   ) =>
   SpecWith (ImpTestState era)

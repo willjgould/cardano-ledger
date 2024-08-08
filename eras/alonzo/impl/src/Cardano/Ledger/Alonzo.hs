@@ -47,7 +47,7 @@ import Cardano.Ledger.Shelley.API.Mempool
 import Control.Arrow (left)
 import Control.Monad.Except (MonadError, liftEither)
 import Control.Monad.Reader (runReader)
-import Control.State.Transition.Extended (STS (State), TRC (TRC))
+import Control.State.Transition.Extended (TRC (TRC))
 
 type Alonzo = AlonzoEra StandardCrypto
 
@@ -57,7 +57,6 @@ reapplyAlonzoTx ::
   forall era m.
   ( API.ApplyTx era
   , MonadError (ApplyTxError era) m
-  , State (EraRule "LEDGER" era) ~ API.LedgerState era
   ) =>
   Globals ->
   MempoolEnv era ->

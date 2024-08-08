@@ -20,8 +20,8 @@ import Test.Cardano.Ledger.Imp.Common
 import Test.Cardano.Ledger.Shelley.ImpTest
 
 spec ::
-  forall era ls.
-  ShelleyEraImp ls era =>
+  forall era.
+  ShelleyEraImp era =>
   SpecWith (ImpTestState era)
 spec = describe "LEDGER" $ do
   it "Transactions update UTxO" $ do

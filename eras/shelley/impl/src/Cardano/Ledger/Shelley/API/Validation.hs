@@ -41,7 +41,6 @@ import Cardano.Ledger.Crypto (Crypto)
 import Cardano.Ledger.Keys (DSignable, Hash)
 import Cardano.Ledger.Shelley (ShelleyEra)
 import Cardano.Ledger.Shelley.Core (EraGov)
-import Cardano.Ledger.Shelley.Era (EraFirstRule)
 import Cardano.Ledger.Shelley.LedgerState (LedgerState (..), NewEpochState, curPParamsEpochStateL)
 import qualified Cardano.Ledger.Shelley.LedgerState as LedgerState
 import Cardano.Ledger.Shelley.PParams ()
@@ -61,37 +60,6 @@ import NoThunks.Class (NoThunks (..))
   Block validation API
 -------------------------------------------------------------------------------}
 
-{- CIP-0118#apply-block-0
-
-(Please read CIP-0118#ledger-state-temp first)
-
-Since we want `State (EraRule "LEDGERS" era) ~ LedgerStateTemp era`, and since,
-originally, the definition of `ShelleyBbodyState` was:
-
-data ShelleyBbodyState era
-  = BbodyState !(State (EraRule "LEDGERS" era)) !(BlocksMade (EraCrypto era))
-
-...which, conceptually, states that the first rule after BBODY expects the same
-state as the LEDGERS rule. This is because LEDGERS was always intended to be the
-first rule after BBODY, which is no longer the case!
-
-There are multiple ways to solve this, of varying complexity and tradeoffs, to solve this.
-This is just one way. We've introduced a new type family: `EraFirstRule (era :: Symbol)`.
-
-See CIP-0118#era-first-rule for more information on `EraFirstRule`.
-
-This family carries the rule expected after BBODY, for each era.
-
-Now, we can change `ShelleyBbodyState`:
-
-data ShelleyBbodyState era
-  = BbodyState !(State (EraRule (EraFirstRule era) era)) !(BlocksMade (EraCrypto era))
-
-...to carry whichever state is expected (by the current era) for the first rule after BBODY.
-
-See CIP-0118#shelley-bbody-state for more details on the changes to `ShelleyBbodyState`.
-
-Jump to ??? to continue... -}
 class
   ( STS (EraRule "TICK" era)
   , BaseM (EraRule "TICK" era) ~ ShelleyBase
@@ -104,7 +72,7 @@ class
   , State (EraRule "BBODY" era) ~ STS.ShelleyBbodyState era
   , Signal (EraRule "BBODY" era) ~ Block (BHeaderView (EraCrypto era)) era
   , EncCBORGroup (TxZones era)
-  , State (EraRule (EraFirstRule era) era) ~ LedgerState era
+  , State (EraRule "LEDGERS" era) ~ LedgerState era
   ) =>
   ApplyBlock era
   where
@@ -149,7 +117,7 @@ class
       . left BlockTransitionError
       . right
         ( mapEventReturn @ep @(EraRule "BBODY" era) $
-            updateNewEpochState @era state
+            updateNewEpochState state
         )
       $ res
     where
@@ -265,7 +233,7 @@ mkBbodyEnv
       }
 
 updateNewEpochState ::
-  (LedgerState era ~ State (EraRule (EraFirstRule era) era), EraGov era) =>
+  (State (EraRule "LEDGERS" era) ~ LedgerState era, EraGov era) =>
   NewEpochState era ->
   STS.ShelleyBbodyState era ->
   NewEpochState era

@@ -27,7 +27,6 @@ module Test.Cardano.Ledger.Babel.Rules.Chain (
 
 import Cardano.Ledger.BHeaderView (BHeaderView)
 import Cardano.Ledger.Babel.Era (BabelBBODY, BabelEra)
-import Cardano.Ledger.Babel.LedgerState.Types
 import Cardano.Ledger.Babel.Rules.Bbody (BabelBbodyPredFailure)
 import Cardano.Ledger.BaseTypes (
   BlocksMade (..),
@@ -55,7 +54,6 @@ import Cardano.Ledger.Keys (
   coerceKeyRole,
  )
 import Cardano.Ledger.PoolDistr (PoolDistr (..))
-import Cardano.Ledger.Shelley (EraFirstRule)
 import Cardano.Ledger.Shelley.AdaPots (
   AdaPots (..),
   totalAdaES,
@@ -279,8 +277,7 @@ instance
   , EncCBORGroup (TxZones era)
   , ProtVerAtMost era 12
   , State (EraRule "ZONES" era) ~ LedgerState era
-  , State (EraRule (EraFirstRule era) era) ~ LedgerState era
-  , State (Core.EraRule "LEDGERS" era) ~ LedgerStateTemp era
+  , State (Core.EraRule "LEDGERS" era) ~ LedgerState era
   ) =>
   STS (CHAIN era)
   where
@@ -317,8 +314,8 @@ chainTransition ::
   , State (EraRule "TICK" era) ~ NewEpochState era
   , Signal (EraRule "TICK" era) ~ SlotNo
   , Embed (PRTCL (EraCrypto era)) (CHAIN era)
+  , State (EraRule "LEDGERS" era) ~ LedgerState era
   , EncCBORGroup (TxZones era)
-  , State (EraRule (EraFirstRule era) era) ~ LedgerState era
   , EraGov era
   ) =>
   TransitionRule (CHAIN era)

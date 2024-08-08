@@ -35,17 +35,10 @@ import Cardano.Ledger.Babbage.Rules (
  )
 import Cardano.Ledger.Babbage.Tx (IsValid (..))
 import Cardano.Ledger.Babbage.TxBody (BabbageTxOut (..))
-import Cardano.Ledger.Babel.Core (BabelEraTxBody)
 import Cardano.Ledger.Babel.Era (
   BabelEra,
   BabelLEDGER,
   BabelUTXOW,
- )
-import Cardano.Ledger.Babel.LedgerState.Types (
-  LedgerStateTemp (..),
-  UTxOStateTemp (utxostGovState, utxostUtxo),
-  utxostDepositedL,
-  utxostGovStateL,
  )
 import Cardano.Ledger.Babel.Rules.Cert ()
 import Cardano.Ledger.Babel.Rules.Certs ()
@@ -92,8 +85,12 @@ import Cardano.Ledger.Shelley.AdaPots (consumedTxBody, producedTxBody)
 import Cardano.Ledger.Shelley.LedgerState (
   CertState (..),
   DState (..),
+  LedgerState (..),
+  UTxOState (..),
   asTreasuryL,
   certVStateL,
+  utxosDepositedL,
+  utxosGovStateL,
   vsCommitteeStateL,
  )
 import Cardano.Ledger.Shelley.Rules (
@@ -279,13 +276,13 @@ instance
 
 instance
   ( AlonzoEraTx era
-  , BabelEraTxBody era
+  , ConwayEraTxBody era
   , ConwayEraGov era
   , GovState era ~ ConwayGovState era
   , Embed (EraRule "UTXOW" era) (BabelLEDGER era)
   , Embed (EraRule "GOV" era) (BabelLEDGER era)
   , Embed (EraRule "CERTS" era) (BabelLEDGER era)
-  , State (EraRule "UTXOW" era) ~ UTxOStateTemp era
+  , State (EraRule "UTXOW" era) ~ UTxOState era
   , State (EraRule "CERTS" era) ~ CertState era
   , State (EraRule "GOV" era) ~ Proposals era
   , Environment (EraRule "UTXOW" era) ~ UtxoEnv era
@@ -297,7 +294,7 @@ instance
   ) =>
   STS (BabelLEDGER era)
   where
-  type State (BabelLEDGER era) = LedgerStateTemp era
+  type State (BabelLEDGER era) = LedgerState era
   type Signal (BabelLEDGER era) = Tx era
   type Environment (BabelLEDGER era) = LedgerEnv era
   type BaseM (BabelLEDGER era) = ShelleyBase
@@ -319,17 +316,17 @@ Jump to CIP-0118#UTXOW-rule to continue... -}
 ledgerTransition ::
   forall (someLEDGER :: Type -> Type) era.
   ( AlonzoEraTx era
-  , BabelEraTxBody era
+  , ConwayEraTxBody era
   , ConwayEraGov era
   , GovState era ~ ConwayGovState era
   , Signal (someLEDGER era) ~ Tx era
-  , State (someLEDGER era) ~ LedgerStateTemp era
+  , State (someLEDGER era) ~ LedgerState era
   , Environment (someLEDGER era) ~ LedgerEnv era
   , PredicateFailure (someLEDGER era) ~ BabelLedgerPredFailure era
   , Embed (EraRule "UTXOW" era) (someLEDGER era)
   , Embed (EraRule "GOV" era) (someLEDGER era)
   , Embed (EraRule "CERTS" era) (someLEDGER era)
-  , State (EraRule "UTXOW" era) ~ UTxOStateTemp era
+  , State (EraRule "UTXOW" era) ~ UTxOState era
   , State (EraRule "CERTS" era) ~ CertState era
   , State (EraRule "GOV" era) ~ Proposals era
   , Environment (EraRule "UTXOW" era) ~ UtxoEnv era
@@ -343,7 +340,7 @@ ledgerTransition ::
   ) =>
   TransitionRule (someLEDGER era)
 ledgerTransition = do
-  TRC (LedgerEnv slot _txIx pp account, LedgerStateTemp utxoState certState, tx) <-
+  TRC (LedgerEnv slot _txIx pp account, LedgerState utxoState certState, tx) <-
     judgmentContext
 
   let actualTreasuryValue = account ^. asTreasuryL
@@ -393,15 +390,15 @@ ledgerTransition = do
                   (txIdTxBody txBody)
                   currentEpoch
                   pp
-                  (utxoState ^. utxostGovStateL . proposalsGovStateL . pRootsL . L.to toPrevGovActionIds)
-                  (utxoState ^. utxostGovStateL . constitutionGovStateL . constitutionScriptL)
+                  (utxoState ^. utxosGovStateL . proposalsGovStateL . pRootsL . L.to toPrevGovActionIds)
+                  (utxoState ^. utxosGovStateL . constitutionGovStateL . constitutionScriptL)
                   (certState ^. certVStateL . vsCommitteeStateL)
-              , utxoState ^. utxostGovStateL . proposalsGovStateL
+              , utxoState ^. utxosGovStateL . proposalsGovStateL
               , govProcedures
               )
         let utxoState' =
               utxoState
-                & utxostGovStateL
+                & utxosGovStateL
                 . proposalsGovStateL
                 .~ proposalsState
         pure
@@ -420,7 +417,7 @@ ledgerTransition = do
         , utxoState'
         , tx
         )
-  pure $ LedgerStateTemp utxoState'' certStateAfterCERTS
+  pure $ LedgerState utxoState'' certStateAfterCERTS
 
 instance
   ( EraTx era
@@ -460,7 +457,7 @@ instance
   , EraUTxO era
   , BabbageEraTxBody era
   , Embed (EraRule "UTXO" era) (BabelUTXOW era)
-  , State (EraRule "UTXO" era) ~ UTxOStateTemp era
+  , State (EraRule "UTXO" era) ~ UTxOState era
   , Environment (EraRule "UTXO" era) ~ UtxoEnv era
   , Script era ~ AlonzoScript era
   , TxOut era ~ BabbageTxOut era
@@ -484,7 +481,7 @@ renderDepositEqualsObligationViolation ::
   , EraGov era
   , Environment t ~ LedgerEnv era
   , Signal t ~ Tx era
-  , State t ~ LedgerStateTemp era
+  , State t ~ LedgerState era
   ) =>
   AssertionViolation t ->
   String
@@ -493,11 +490,11 @@ renderDepositEqualsObligationViolation
     case avState of
       Nothing -> "\nAssertionViolation " ++ avSTS ++ " " ++ avMsg ++ " (avState is Nothing)."
       Just lstate ->
-        let certstate = lstCertState lstate
-            utxoSt = lstUTxOState lstate
-            utxo = utxostUtxo utxoSt
+        let certstate = lsCertState lstate
+            utxoSt = lsUTxOState lstate
+            utxo = utxosUtxo utxoSt
             txb = tx ^. bodyTxL
-            pot = utxoSt ^. utxostDepositedL
+            pot = utxoSt ^. utxosDepositedL
          in "\n\nAssertionViolation ("
               <> avSTS
               <> ")\n\n  "
@@ -509,7 +506,7 @@ renderDepositEqualsObligationViolation
               <> "\nThe Pot (utxosDeposited) = "
               <> show pot
               <> "\n"
-              <> show (allObligations certstate (utxostGovState utxoSt))
+              <> show (allObligations certstate (utxosGovState utxoSt))
               <> "\nConsumed = "
               <> show (consumedTxBody txb pp certstate utxo)
               <> "\nProduced = "
@@ -517,26 +514,26 @@ renderDepositEqualsObligationViolation
 
 babelLedgerAssertions ::
   ( EraGov era
-  , State (rule era) ~ LedgerStateTemp era
+  , State (rule era) ~ LedgerState era
   ) =>
   [Assertion (rule era)]
 babelLedgerAssertions =
   [ PostCondition
       "Deposit pot must equal obligation (LEDGER)"
       ( \(TRC (_, _, _))
-         (LedgerStateTemp utxoSt dpstate) -> potEqualsObligation dpstate utxoSt
+         (LedgerState utxoSt dpstate) -> potEqualsObligation dpstate utxoSt
       )
   ]
 
 potEqualsObligation ::
   EraGov era =>
   CertState era ->
-  UTxOStateTemp era ->
+  UTxOState era ->
   Bool
 potEqualsObligation certState utxoSt = obligations == pot
   where
-    obligations = totalObligation certState (utxoSt ^. utxostGovStateL)
-    pot = utxoSt ^. utxostDepositedL
+    obligations = totalObligation certState (utxoSt ^. utxosGovStateL)
+    pot = utxoSt ^. utxosDepositedL
 
 allObligations :: EraGov era => CertState era -> GovState era -> Obligations
 allObligations certState govState =

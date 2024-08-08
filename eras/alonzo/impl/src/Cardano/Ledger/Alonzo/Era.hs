@@ -13,7 +13,6 @@ where
 
 import Cardano.Ledger.Crypto (Crypto)
 import Cardano.Ledger.Mary (MaryEra, MaryValue)
-import Cardano.Ledger.Shelley (EraFirstRule)
 import Cardano.Ledger.Shelley.Core
 import Cardano.Ledger.Shelley.Rules
 
@@ -31,8 +30,6 @@ instance Crypto c => Era (AlonzoEra c) where
   eraName = "Alonzo"
 
 type instance Value (AlonzoEra c) = MaryValue c
-
-type instance EraFirstRule (AlonzoEra c) = "LEDGERS"
 
 -------------------------------------------------------------------------------
 -- Era Mapping

@@ -47,6 +47,7 @@ import Cardano.Ledger.Conway.Governance (
   Voter (..),
   unVotingProcedures,
  )
+import Cardano.Ledger.Conway.Scripts
 import Cardano.Ledger.Credential (credKeyHashWitness, credScriptHash)
 import Cardano.Ledger.Crypto (Crypto)
 import Cardano.Ledger.Keys (KeyHash, KeyRole (..), asWitness)
@@ -62,12 +63,89 @@ import Data.Monoid (Sum (..))
 import qualified Data.Set as Set
 import Lens.Micro ((^.))
 
-getBabelScriptsNeeded ::
-  BabelEraTxBody era =>
+-- getBabelScriptsNeeded ::
+--   (ConwayEraTxBody era, ConwayEraScript era) =>
+--   UTxO era ->
+--   TxBody era ->
+--   AlonzoScriptsNeeded era
+-- getBabelScriptsNeeded utxo txBody =
+--   getSpendingScriptsNeeded utxo txBody
+--     <> getRewardingScriptsNeeded txBody
+--     <> certifyingScriptsNeeded
+--     <> getMintingScriptsNeeded txBody
+--     <> votingScriptsNeeded
+--     <> proposingScriptsNeeded
+--   where
+--     certifyingScriptsNeeded =
+--       AlonzoScriptsNeeded $
+--         catMaybes $
+--           zipAsIxItem (txBody ^. certsTxBodyL) $
+--             \asIxItem@(AsIxItem _ txCert) ->
+--               (CertifyingPurpose asIxItem,) <$> getScriptWitnessTxCert txCert
+
+--     votingScriptsNeeded =
+--       AlonzoScriptsNeeded $
+--         catMaybes $
+--           zipAsIxItem (Map.keys (unVotingProcedures (txBody ^. votingProceduresTxBodyL))) $
+--             \asIxItem@(AsIxItem _ voter) ->
+--               (VotingPurpose asIxItem,) <$> getVoterScriptHash voter
+--       where
+--         getVoterScriptHash = \case
+--           CommitteeVoter cred -> credScriptHash cred
+--           DRepVoter cred -> credScriptHash cred
+--           StakePoolVoter _ -> Nothing
+
+--     proposingScriptsNeeded =
+--       AlonzoScriptsNeeded $
+--         catMaybes $
+--           zipAsIxItem (txBody ^. proposalProceduresTxBodyL) $
+--             \asIxItem@(AsIxItem _ proposal) ->
+--               (ProposingPurpose asIxItem,) <$> getProposalScriptHash proposal
+--       where
+--         getProposalScriptHash ProposalProcedure {pProcGovAction} =
+--           case pProcGovAction of
+--             ParameterChange _ _ (SJust govPolicyHash) -> Just govPolicyHash
+--             TreasuryWithdrawals _ (SJust govPolicyHash) -> Just govPolicyHash
+--             _ -> Nothing
+
+babelProducedValue ::
+  (ConwayEraTxBody era, Value era ~ MaryValue (EraCrypto era)) =>
+  PParams era ->
+  (KeyHash 'StakePool (EraCrypto era) -> Bool) ->
+  TxBody era ->
+  Value era
+babelProducedValue pp isStakePool txBody =
+  getProducedMaryValue pp isStakePool txBody
+    <+> inject (txBody ^. treasuryDonationTxBodyL)
+
+instance Crypto c => EraUTxO (BabelEra c) where
+  type ScriptsNeeded (BabelEra c) = AlonzoScriptsNeeded (BabelEra c)
+
+  getConsumedValue = getConsumedMaryValue
+
+  getProducedValue = babelProducedValue
+
+  getScriptsProvided = getBabbageScriptsProvided
+
+  getScriptsNeeded = getConwayScriptsNeeded
+
+  getScriptsHashesNeeded = getAlonzoScriptsHashesNeeded
+
+  getWitsVKeyNeeded _ = getBabelWitsVKeyNeeded
+
+  getMinFeeTxUtxo = getBabelMinFeeTxUtxo
+
+instance Crypto c => AlonzoEraUTxO (BabelEra c) where
+  getSupplementalDataHashes = getBabbageSupplementalDataHashes
+
+  getSpendingDatum = getBabbageSpendingDatum
+
+getConwayScriptsNeeded ::
+  ConwayEraTxBody era =>
   UTxO era ->
   TxBody era ->
   AlonzoScriptsNeeded era
-getBabelScriptsNeeded utxo txBody =
+getConwayScriptsNeeded utxo txBody =
   getSpendingScriptsNeeded utxo txBody
     <> getRewardingScriptsNeeded txBody
     <> certifyingScriptsNeeded
@@ -107,38 +185,6 @@ getBabelScriptsNeeded utxo txBody =
             TreasuryWithdrawals _ (SJust govPolicyHash) -> Just govPolicyHash
             _ -> Nothing
 
-babelProducedValue ::
-  (BabelEraTxBody era, Value era ~ MaryValue (EraCrypto era)) =>
-  PParams era ->
-  (KeyHash 'StakePool (EraCrypto era) -> Bool) ->
-  TxBody era ->
-  Value era
-babelProducedValue pp isStakePool txBody =
-  getProducedMaryValue pp isStakePool txBody
-    <+> inject (txBody ^. treasuryDonationTxBodyL)
-
-instance Crypto c => EraUTxO (BabelEra c) where
-  type ScriptsNeeded (BabelEra c) = AlonzoScriptsNeeded (BabelEra c)
-
-  getConsumedValue = getConsumedMaryValue
-
-  getProducedValue = babelProducedValue
-
-  getScriptsProvided = getBabbageScriptsProvided
-
-  getScriptsNeeded = getBabelScriptsNeeded
-
-  getScriptsHashesNeeded = getAlonzoScriptsHashesNeeded
-
-  getWitsVKeyNeeded _ = getBabelWitsVKeyNeeded
-
-  getMinFeeTxUtxo = getBabelMinFeeTxUtxo
-
-instance Crypto c => AlonzoEraUTxO (BabelEra c) where
-  getSupplementalDataHashes = getBabbageSupplementalDataHashes
-
-  getSpendingDatum = getBabbageSpendingDatum
-
 getBabelMinFeeTxUtxo ::
   ( EraTx era
   , BabbageEraTxBody era
@@ -155,7 +201,7 @@ getBabelMinFeeTxUtxo pparams tx utxo =
     refScriptsSize = getSum $ foldMap (Sum . originalBytesSize . snd) refScripts
 
 getBabelWitsVKeyNeeded ::
-  (EraTx era, BabelEraTxBody era) =>
+  (EraTx era, ConwayEraTxBody era) =>
   UTxO era ->
   TxBody era ->
   Set.Set (KeyHash 'Witness (EraCrypto era))
@@ -165,7 +211,7 @@ getBabelWitsVKeyNeeded utxo txBody =
     `Set.union` voterWitnesses txBody
 
 voterWitnesses ::
-  BabelEraTxBody era =>
+  ConwayEraTxBody era =>
   TxBody era ->
   Set.Set (KeyHash 'Witness (EraCrypto era))
 voterWitnesses txb =

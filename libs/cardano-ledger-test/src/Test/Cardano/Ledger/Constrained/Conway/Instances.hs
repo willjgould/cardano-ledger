@@ -87,7 +87,6 @@ import Cardano.Ledger.Conway.TxCert
 import Cardano.Ledger.Credential
 import Cardano.Ledger.Crypto (Crypto, StandardCrypto)
 import Cardano.Ledger.EpochBoundary
-import Cardano.Ledger.FRxO (FRxO)
 import Cardano.Ledger.HKD
 import Cardano.Ledger.Keys (
   BootstrapWitness,
@@ -1195,9 +1194,6 @@ instance (IsConwayUniv fn, Crypto c) => HasSpec fn (SnapShots c)
 
 instance HasSimpleRep (LedgerState (ConwayEra StandardCrypto))
 instance IsConwayUniv fn => HasSpec fn (LedgerState (ConwayEra StandardCrypto))
-
-instance HasSimpleRep (FRxO (ConwayEra StandardCrypto))
-instance IsConwayUniv fn => HasSpec fn (FRxO (ConwayEra StandardCrypto))
 
 instance HasSimpleRep (UTxOState (ConwayEra StandardCrypto))
 instance IsConwayUniv fn => HasSpec fn (UTxOState (ConwayEra StandardCrypto))

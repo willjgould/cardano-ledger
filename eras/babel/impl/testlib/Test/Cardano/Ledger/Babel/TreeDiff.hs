@@ -63,7 +63,6 @@ instance
   ) =>
   ToExpr (BabelUtxosPredFailure era)
 
--- TxBody
 instance
   (EraPParams era, ToExpr (PParamsHKD StrictMaybe era), ToExpr (TxOut era)) =>
   ToExpr (BabelTxBodyRaw era)

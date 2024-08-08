@@ -26,15 +26,12 @@ module Cardano.Ledger.Babel.Rules.Zone where
 import Cardano.Ledger.Alonzo.Core (AlonzoEraTx)
 import Cardano.Ledger.Alonzo.Tx (IsValid (IsValid), totExUnits)
 import Cardano.Ledger.Babel.Core (
-  BabelEraTxBody (fulfillsTxBodyL),
   Era (EraCrypto),
   EraRule,
   EraTx (Tx, bodyTxL),
-  EraTxBody (TxBody, inputsTxBodyL),
   InjectRuleFailure (..),
   collateralInputsTxBodyL,
   isValidTxL,
-  requiredTxsTxBodyL,
  )
 import Cardano.Ledger.Babel.Era (BabelEra, BabelZONE)
 import Cardano.Ledger.BaseTypes (
@@ -71,12 +68,12 @@ import Control.State.Transition.Extended (
  )
 import qualified Data.Foldable as Foldable
 import Data.Sequence (Seq)
-import Data.Set (Set, toList)
+import Data.Set (Set)
 import qualified Data.Set as Set
 import GHC.Generics (Generic)
-import Lens.Micro ((^.))
-import Lens.Micro.Type (Lens')
+import Lens.Micro (folded, (^.), (^..))
 
+import Cardano.Ledger.Allegra.Core (EraTxBody (..))
 import Cardano.Ledger.Alonzo.Core (ppCollateralPercentageL)
 import Cardano.Ledger.Alonzo.Plutus.Context (EraPlutusContext)
 import Cardano.Ledger.Alonzo.Plutus.Evaluate (collectPlutusScriptsWithContext, evalPlutusScripts)
@@ -89,15 +86,7 @@ import Cardano.Ledger.Alonzo.Rules (
  )
 import Cardano.Ledger.Alonzo.UTxO (AlonzoEraUTxO, AlonzoScriptsNeeded)
 import Cardano.Ledger.Babbage.Collateral (collAdaBalance, collOuts)
-import Cardano.Ledger.Babel.Core (
-  AlonzoEraTxBody,
-  ppMaxTxExUnitsL,
- )
-import Cardano.Ledger.Babel.LedgerState.Types (
-  LedgerStateTemp,
-  fromLedgerState,
-  toLedgerState,
- )
+import Cardano.Ledger.Babel.Core (AlonzoEraTxBody, Value, ppMaxTxExUnitsL)
 import Cardano.Ledger.Babel.Rules.Ledger (BabelLedgerPredFailure)
 import Cardano.Ledger.Babel.Rules.Ledgers (BabelLEDGERS, BabelLedgersEnv (BabelLedgersEnv))
 import Cardano.Ledger.Babel.Rules.Utxo (BabelUtxoPredFailure (..))
@@ -106,20 +95,24 @@ import Cardano.Ledger.Babel.Rules.Utxow (BabelUtxowPredFailure)
 import Cardano.Ledger.Binary (EncCBOR (..))
 import Cardano.Ledger.Binary.Coders (Decode (..), Encode (..), decode, encode, (!>), (<!))
 import Cardano.Ledger.Binary.Decoding (DecCBOR (..))
+import Cardano.Ledger.CertState (CertState)
 import Cardano.Ledger.Coin (Coin (..), DeltaCoin (DeltaCoin))
-import Cardano.Ledger.Core (PParams, feeTxBodyL, ppMaxTxSizeL, sizeTxF)
+import Cardano.Ledger.Conway.TxBody (ConwayEraTxBody)
+import Cardano.Ledger.Core (PParams, ppMaxTxSizeL, sizeTxF)
+import Cardano.Ledger.Mary.Value (MaryValue)
 import Cardano.Ledger.Plutus (
   PlutusWithContext,
   ScriptFailure (scriptFailurePlutus),
   ScriptResult (..),
  )
 import Cardano.Ledger.Plutus.ExUnits (pointWiseExUnits)
-import Cardano.Ledger.Rules.ValidationMode (Test, runTestOnSignal)
+import Cardano.Ledger.Rules.ValidationMode (Test, runTest, runTestOnSignal)
 import Cardano.Ledger.Shelley.LedgerState (updateStakeDistribution, utxosUtxoL)
 import Cardano.Ledger.Shelley.Rules (
   ShelleyLedgersEvent,
   ShelleyLedgersPredFailure (..),
  )
+import Cardano.Ledger.Shelley.UTxO (consumed, produced)
 import Cardano.Ledger.UTxO (EraUTxO (ScriptsNeeded), balance, txInsFilter)
 import Cardano.Ledger.Val (coin)
 import Control.DeepSeq (NFData)
@@ -128,7 +121,7 @@ import Control.Monad.RWS (asks)
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import qualified Data.Map as Map
 import Data.MapExtras (extractKeys)
-import Debug.Trace (traceEvent)
+import Debug.Trace (trace, traceEvent)
 import NoThunks.Class (NoThunks)
 import Validation (failure, failureUnless)
 
@@ -278,11 +271,11 @@ instance
   , Show (PredicateFailure (EraRule "LEDGER" era))
   , ConwayEraPParams era
   , Environment (EraRule "LEDGERS" era) ~ BabelLedgersEnv era
-  , State (EraRule "LEDGERS" era) ~ LedgerStateTemp era
+  , State (EraRule "LEDGERS" era) ~ LedgerState era
   , Signal (EraRule "LEDGERS" era) ~ Seq (Tx era)
   , Embed (EraRule "LEDGERS" era) (BabelZONE era)
   , EraTx era
-  , BabelEraTxBody era
+  , ConwayEraTxBody era
   , AlonzoEraTx era
   , AlonzoEraUTxO era
   , EraPlutusContext era
@@ -291,6 +284,7 @@ instance
   , InjectRuleFailure "ZONE" BabelUtxosPredFailure era
   , PredicateFailure (EraRule "ZONE" era) ~ BabelZonePredFailure era
   , InjectRuleFailure "ZONE" BabelUtxoPredFailure era
+  , Value era ~ MaryValue (EraCrypto era)
   ) =>
   STS (BabelZONE era)
   where
@@ -327,19 +321,19 @@ Finally, we check that the `ExUnit`s limit is not exceeded:
 `runTestOnSignal $ validateExUnitsTooBigUTxO pParams (Foldable.toList txs)`
 
 If these checks pass, we proceed to the LEDGERS rule. Note that, at this point,
-we create a `LedgerStateTemp` with an empty `FRxO` set.
+we create a `LedgerState` with an empty `FRxO` set.
 
-Please see CIP-0118#ledger-state-temp for more information on `LedgerStateTemp`.
+Please see CIP-0118#ledger-state-temp for more information on `LedgerState`.
 
 Jump to CIP-0118#LEDGERS-rule to continue... -}
 zoneTransition ::
   forall era.
   ( EraRule "ZONE" era ~ BabelZONE era
   , Environment (EraRule "LEDGERS" era) ~ BabelLedgersEnv era
-  , State (EraRule "LEDGERS" era) ~ LedgerStateTemp era
+  , State (EraRule "LEDGERS" era) ~ LedgerState era
   , Signal (EraRule "LEDGERS" era) ~ Seq (Tx era)
   , Embed (EraRule "LEDGERS" era) (BabelZONE era)
-  , BabelEraTxBody era
+  , ConwayEraTxBody era
   , AlonzoEraTx era
   , AlonzoEraUTxO era
   , Eq (PredicateFailure (EraRule "LEDGER" era))
@@ -350,6 +344,7 @@ zoneTransition ::
   , InjectRuleFailure "ZONE" BabelUtxosPredFailure era
   , PredicateFailure (EraRule "ZONE" era) ~ BabelZonePredFailure era
   , InjectRuleFailure "ZONE" BabelUtxoPredFailure era
+  , Value era ~ MaryValue (EraCrypto era)
   ) =>
   TransitionRule (BabelZONE era)
 zoneTransition =
@@ -373,12 +368,6 @@ zoneTransition =
 
         if all chkIsValid txs -- ZONE-V
           then do
-            -- TODO WG: make sure `runTestOnSignal` is correct rather than `runTest`
-            {- All (chkRqTx ltx) (fromList ltx) -}
-            runTestOnSignal $ failureUnless (all (chkRqTx txs) txs) CheckRqTxFailure
-            {- noCycles ltx -}
-            runTestOnSignal $
-              failureUnless (chkLinear ltx) CheckLinearFailure
             {- totExunits tx ≤ maxTxExUnits pp -}
             runTestOnSignal $ validateExUnitsTooBigUTxO pParams ltx
 
@@ -397,14 +386,16 @@ zoneTransition =
             runTestOnSignal $
               failureUnless (collInUTxO ltx utxo) CollInUtxoValidFailure
 
-            lsTemp <- -- TODO WG: Should we be checking FRxO is empty before converting?
-              trans @(EraRule "LEDGERS" era) $
-                TRC
-                  ( BabelLedgersEnv slotNo ixStart pParams accountState
-                  , fromLedgerState $ LedgerState utxoState certState
-                  , txs
-                  )
-            pure $ toLedgerState lsTemp
+            {- consumed pp utxo txb = produced pp poolParams txb -}
+            runTest $
+              validateValueNotConservedUTxO pParams utxo certState (Foldable.toList (txs ^.. folded . bodyTxL))
+
+            trans @(EraRule "LEDGERS" era) $
+              TRC
+                ( BabelLedgersEnv slotNo ixStart pParams accountState
+                , LedgerState utxoState certState
+                , txs
+                )
           else -- ZONE-N
           do
             -- Check that only the last transaction is invalid
@@ -431,23 +422,6 @@ zoneTransition =
 
             babelEvalScriptsTxInvalid @era
   where
-    chkLinear :: [Tx era] -> Bool
-    chkLinear txs =
-      case topSortTxs
-        (mkAllEdges txs txs)
-        (mkAllEdges txs txs)
-        (nodesWithNoIncomingEdge txs (mkAllEdges txs txs))
-        [] of
-        Nothing -> False
-        _ -> True
-    -- chkRqTx txs tx = ∀[ txrid ∈ tx .Tx.body .TxBody.requiredTxs ] Any (txrid ≡_) ( getIDs txs )
-    chkRqTx :: Seq (Tx era) -> Tx era -> Bool
-    chkRqTx txs tx = all chk txrids
-      where
-        chk txrid = txrid `elem` ids
-        txrids = fmap txInTxId $ toList $ tx ^. bodyTxL . requiredTxsTxBodyL
-        ids :: Set (TxId (EraCrypto era))
-        ids = getIDs $ Foldable.toList txs
     -- chkIsValid tx = tx .Tx.isValid ≡ true
     chkIsValid :: Tx era -> Bool
     chkIsValid tx = tx ^. isValidTxL == IsValid True
@@ -483,13 +457,38 @@ zoneTransition =
     sumCol :: [Tx era] -> Integer -> Coin
     sumCol tb cp = Coin $ foldr (\tx c -> c + (unCoin (tx ^. bodyTxL . feeTxBodyL) * cp)) 0 tb
 
+validateValueNotConservedUTxO ::
+  (EraUTxO era, Value era ~ MaryValue (EraCrypto era)) =>
+  PParams era ->
+  UTxO era ->
+  CertState era ->
+  [TxBody era] ->
+  Test (BabelUtxoPredFailure era)
+validateValueNotConservedUTxO pp utxo certState txs =
+  trace
+    ( "\n\n Consumed: "
+        <> show consumedValue
+        <> " | Produced: "
+        <> show producedValue
+        <> " \n Num Txs in zone: "
+        <> show (length txs)
+        <> " \n The UTXO: "
+        <> show utxo
+    )
+    failureUnless
+    (consumedValue == producedValue)
+    $ ValueNotConservedUTxO consumedValue producedValue
+  where
+    consumedValue = foldMap (consumed pp certState utxo) txs
+    producedValue = foldMap (produced pp certState) txs
+
 babelEvalScriptsTxInvalid ::
   forall era.
   ( EraRule "ZONE" era ~ BabelZONE era
-  , BabelEraTxBody era
+  , ConwayEraTxBody era
   , AlonzoEraTx era
   , Environment (EraRule "LEDGERS" era) ~ BabelLedgersEnv era
-  , State (EraRule "LEDGERS" era) ~ LedgerStateTemp era
+  , State (EraRule "LEDGERS" era) ~ LedgerState era
   , Signal (EraRule "LEDGERS" era) ~ Seq (Tx era)
   , Embed (EraRule "LEDGERS" era) (BabelZONE era)
   , Eq (PredicateFailure (EraRule "LEDGER" era))
@@ -501,6 +500,7 @@ babelEvalScriptsTxInvalid ::
   , InjectRuleFailure "ZONE" AlonzoUtxosPredFailure era
   , InjectRuleFailure "ZONE" BabelUtxosPredFailure era
   , InjectRuleFailure "ZONE" BabelUtxoPredFailure era
+  , Value era ~ MaryValue (EraCrypto era)
   ) =>
   TransitionRule (BabelZONE era)
 babelEvalScriptsTxInvalid =
@@ -595,88 +595,6 @@ txInTxId (TxIn x _) = x
 -- get a set of TxIds containing all IDs of transaction in given list tb
 getIDs :: EraTx era => [Tx era] -> Set (TxId (EraCrypto era))
 getIDs = foldr (\tx ls -> ls `Set.union` Set.singleton (txIdTx tx)) mempty
-
-mkEdges ::
-  EraTx era =>
-  Lens' (TxBody era) (Set (TxIn (EraCrypto era))) ->
-  Tx era ->
-  [Tx era] ->
-  [(Tx era, Tx era)]
-mkEdges l = go
-  where
-    go _ [] = []
-    go tx (h : txs) =
-      if txIdTx tx `elem` fmap (\(TxIn x _) -> x) (toList $ h ^. bodyTxL . l)
-        then (tx, h) : go tx txs
-        else go tx txs
-
--- make edges for a given transaction
-mkIOEdges :: EraTx era => Tx era -> [Tx era] -> [(Tx era, Tx era)]
-mkIOEdges = mkEdges inputsTxBodyL
-
--- make FR edges for a given transaction
-mkFREdges :: (EraTx era, BabelEraTxBody era) => Tx era -> [Tx era] -> [(Tx era, Tx era)]
-mkFREdges = mkEdges fulfillsTxBodyL
-
--- make all edges for all transactions
-mkAllEdges :: (EraTx era, BabelEraTxBody era) => [Tx era] -> [Tx era] -> [(Tx era, Tx era)]
-mkAllEdges [] _ = []
-mkAllEdges (h : txs) ls = mkIOEdges h ls ++ mkFREdges h ls ++ mkAllEdges txs ls
-
--- -- for a given tx, and set of edges,
--- -- returns a list of transactions ls such that for each e in ls is such that e -> tx is a dependency
--- -- i.e. returns all ends of incoming edges
-hasIncEdges :: EraTx era => Tx era -> [(Tx era, Tx era)] -> [Tx era]
-hasIncEdges _ [] = []
-hasIncEdges tx ((e, tx') : edges) =
-  if txIdTx tx == txIdTx tx'
-    then e : hasIncEdges tx edges
-    else hasIncEdges tx edges
-
--- -- filters a list of transactions such that only ones with no incoming edges remain
-nodesWithNoIncomingEdge :: EraTx era => [Tx era] -> [(Tx era, Tx era)] -> [Tx era]
-nodesWithNoIncomingEdge [] _ = []
-nodesWithNoIncomingEdge (tx : txs) edges = case hasIncEdges tx edges of
-  [] -> tx : nodesWithNoIncomingEdge txs edges
-  _ -> nodesWithNoIncomingEdge txs edges
-
--- -- remove the first instance of a transaction in a list
-removeTx :: EraTx era => Tx era -> [Tx era] -> [Tx era]
-removeTx _ [] = []
-removeTx tx (n : ne) =
-  if txIdTx tx == txIdTx n
-    then ne
-    else n : removeTx tx ne
-
--- remove a transaction from a list if it has no incoming edges
-ifNoEdgeRemove :: EraTx era => Tx era -> [(Tx era, Tx era)] -> [Tx era] -> [Tx era]
-ifNoEdgeRemove tx edges s = case hasIncEdges tx edges of
-  [] -> removeTx tx s
-  _ -> s
-
--- given tx1, for all tx such that (tx1 , tx) in edges,
---             remove (tx1 , tx) from the graph
---             if tx has no other incoming edges then
---               insert tx into S
-updateRES :: EraTx era => Tx era -> [(Tx era, Tx era)] -> [Tx era] -> ([(Tx era, Tx era)], [Tx era])
-updateRES _ [] s = ([], s)
-updateRES tx1 ((tx, tx') : em) s =
-  if txIdTx tx == txIdTx tx1
-    then (fst (updateRES tx1 em (ifNoEdgeRemove tx em s)), ifNoEdgeRemove tx em s)
-    else ((tx, tx') : fst (updateRES tx1 em s), s)
-
--- topologically sorts a tx list
--- arguments : tracking edges for agda termination check, remaining edges, remaining txs with no incoming edge (S), current sorted list (L)
--- returns nothing if there are remaining edges the graph, but S is empty
-topSortTxs ::
-  EraTx era => [(Tx era, Tx era)] -> [(Tx era, Tx era)] -> [Tx era] -> [Tx era] -> Maybe [Tx era]
-topSortTxs _ [] _ srtd = Just srtd
-topSortTxs [] _ _ _ = Nothing
-topSortTxs _ _ [] _ = Nothing
-topSortTxs ((tx1, _) : dges) (r : em) (tx : rls) srtd =
-  uncurry (topSortTxs dges) updRES (srtd ++ [tx1])
-  where
-    updRES = updateRES tx1 (r : em) (removeTx tx1 (tx : rls))
 
 instance
   ( Era era

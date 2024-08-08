@@ -58,7 +58,6 @@ import Cardano.Ledger.Plutus.Language (
   PlutusLanguage,
  )
 import Cardano.Ledger.Shelley.LedgerState (
-  LedgerState,
   NewEpochState,
   curPParamsEpochStateL,
   esLStateL,
@@ -90,20 +89,20 @@ import Test.Cardano.Ledger.Plutus (
 import Test.Cardano.Ledger.Plutus.Examples
 
 class
-  ( MaryEraImp ls era
+  ( MaryEraImp era
   , AlonzoEraScript era
   , AlonzoEraTxWits era
   , AlonzoEraTx era
   , AlonzoEraUTxO era
   ) =>
-  AlonzoEraImp ls era
+  AlonzoEraImp era
   where
   scriptTestContexts :: Map (ScriptHash (EraCrypto era)) ScriptTestContext
 
 initAlonzoImpNES ::
-  forall era ls.
+  forall era.
   ( AlonzoEraPParams era
-  , ShelleyEraImp ls era
+  , ShelleyEraImp era
   , AlonzoEraScript era
   ) =>
   NewEpochState era ->
@@ -121,7 +120,7 @@ initAlonzoImpNES = nesEsL . curPParamsEpochStateL %~ initPParams
           [PlutusV1 .. eraMaxLanguage @era]
 
 makeCollateralInput ::
-  ShelleyEraImp ls era =>
+  ShelleyEraImp era =>
   ImpTestM era (TxIn (EraCrypto era))
 makeCollateralInput = do
   -- TODO: make more accurate
@@ -130,7 +129,7 @@ makeCollateralInput = do
   withFixup fixupTx $ sendCoinTo addr collateral
 
 addCollateralInput ::
-  ( AlonzoEraImp ls era
+  ( AlonzoEraImp era
   , ScriptsNeeded era ~ AlonzoScriptsNeeded era
   ) =>
   Tx era ->
@@ -148,16 +147,16 @@ addCollateralInput tx = impAnn "addCollateralInput" $ do
           <>~ Set.singleton collateralInput
 
 impLookupPlutusScriptMaybe ::
-  forall era ls.
-  AlonzoEraImp ls era =>
+  forall era.
+  AlonzoEraImp era =>
   ScriptHash (EraCrypto era) ->
   Maybe (PlutusScript era)
 impLookupPlutusScriptMaybe sh =
   (\(ScriptTestContext plutus _) -> mkPlutusScript plutus) =<< impGetScriptContextMaybe @era sh
 
 impGetPlutusContexts ::
-  forall era ls.
-  (ScriptsNeeded era ~ AlonzoScriptsNeeded era, AlonzoEraImp ls era) =>
+  forall era.
+  (ScriptsNeeded era ~ AlonzoScriptsNeeded era, AlonzoEraImp era) =>
   Tx era ->
   ImpTestM
     era
@@ -171,8 +170,8 @@ impGetPlutusContexts tx = do
   pure $ catMaybes mbyContexts
 
 fixupRedeemerIndices ::
-  forall era ls.
-  AlonzoEraImp ls era =>
+  forall era.
+  AlonzoEraImp era =>
   Tx era ->
   ImpTestM era (Tx era)
 fixupRedeemerIndices tx = impAnn "fixupRedeemerIndices" $ do
@@ -190,9 +189,9 @@ fixupRedeemerIndices tx = impAnn "fixupRedeemerIndices" $ do
       %~ (\(Redeemers m) -> Redeemers $ Map.mapKeys updateIndex m)
 
 fixupRedeemers ::
-  forall era ls.
+  forall era.
   ( ScriptsNeeded era ~ AlonzoScriptsNeeded era
-  , AlonzoEraImp ls era
+  , AlonzoEraImp era
   ) =>
   Tx era ->
   ImpTestM era (Tx era)
@@ -211,9 +210,9 @@ fixupRedeemers tx = impAnn "fixupRedeemers" $ do
       .~ Redeemers (Map.union oldRedeemers newRedeemers)
 
 fixupScriptWits ::
-  forall era ls.
+  forall era.
   ( ScriptsNeeded era ~ AlonzoScriptsNeeded era
-  , AlonzoEraImp ls era
+  , AlonzoEraImp era
   ) =>
   Tx era ->
   ImpTestM era (Tx era)
@@ -241,10 +240,10 @@ fixupScriptWits tx = impAnn "fixupScriptWits" $ do
       <>~ Map.fromList scriptWits
 
 fixupDatums ::
-  forall era ls.
+  forall era.
   ( HasCallStack
   , ScriptsNeeded era ~ AlonzoScriptsNeeded era
-  , AlonzoEraImp ls era
+  , AlonzoEraImp era
   ) =>
   Tx era ->
   ImpTestM era (Tx era)
@@ -263,12 +262,12 @@ fixupDatums tx = impAnn "fixupDatums" $ do
     collectDatums :: PlutusPurpose AsIxItem era -> ImpTestM era (Maybe (Data era))
     collectDatums purpose = do
       let txIn = unAsItem <$> toSpendingPurpose (hoistPlutusPurpose toAsItem purpose)
-      txOut <- traverse (impLookupUTxO @ls @era) txIn
+      txOut <- traverse (impLookupUTxO @era) txIn
       pure $ getData =<< txOut
 
     getData :: TxOut era -> Maybe (Data era)
     getData txOut = case txOut ^. datumTxOutF of
-      DatumHash _dh -> spendDatum <$> Map.lookup (txOutScriptHash txOut) (scriptTestContexts @ls @era)
+      DatumHash _dh -> spendDatum <$> Map.lookup (txOutScriptHash txOut) (scriptTestContexts @era)
       _ -> Nothing
 
     txOutScriptHash txOut
@@ -279,8 +278,8 @@ fixupDatums tx = impAnn "fixupDatums" $ do
     spendDatum _ = error "Context does not have a spending datum"
 
 fixupPPHash ::
-  forall era ls.
-  AlonzoEraImp ls era =>
+  forall era.
+  AlonzoEraImp era =>
   Tx era ->
   ImpTestM era (Tx era)
 fixupPPHash tx = impAnn "fixupPPHash" $ do
@@ -306,8 +305,8 @@ fixupPPHash tx = impAnn "fixupPPHash" $ do
       .~ integrityHash
 
 fixupOutputDatums ::
-  forall era ls.
-  AlonzoEraImp ls era =>
+  forall era.
+  AlonzoEraImp era =>
   Tx era ->
   ImpTestM era (Tx era)
 fixupOutputDatums tx = impAnn "fixupOutputDatums" $ do
@@ -339,7 +338,7 @@ fixupOutputDatums tx = impAnn "fixupOutputDatums" $ do
 alonzoFixupTx ::
   ( ScriptsNeeded era ~ AlonzoScriptsNeeded era
   , HasCallStack
-  , AlonzoEraImp ls era
+  , AlonzoEraImp era
   ) =>
   Tx era ->
   ImpTestM era (Tx era)
@@ -400,7 +399,7 @@ instance
   , DSIGN c ~ Ed25519DSIGN
   , Signable (DSIGN c) (Hash (HASH c) EraIndependentTxBody)
   ) =>
-  ShelleyEraImp LedgerState (AlonzoEra c)
+  ShelleyEraImp (AlonzoEra c)
   where
   initImpTestState = impNESL %= initAlonzoImpNES
   impSatisfyNativeScript = impAllegraSatisfyNativeScript
@@ -413,21 +412,21 @@ instance
   , DSIGN c ~ Ed25519DSIGN
   , Signable (DSIGN c) (Hash (HASH c) EraIndependentTxBody)
   ) =>
-  MaryEraImp LedgerState (AlonzoEra c)
+  MaryEraImp (AlonzoEra c)
 
-instance MaryEraImp LedgerState (AlonzoEra c) => AlonzoEraImp LedgerState (AlonzoEra c) where
+instance MaryEraImp (AlonzoEra c) => AlonzoEraImp (AlonzoEra c) where
   scriptTestContexts = plutusTestScripts SPlutusV1
 
 impGetScriptContextMaybe ::
-  forall era ls.
-  AlonzoEraImp ls era =>
+  forall era.
+  AlonzoEraImp era =>
   ScriptHash (EraCrypto era) ->
   Maybe ScriptTestContext
-impGetScriptContextMaybe sh = Map.lookup sh $ scriptTestContexts @ls @era
+impGetScriptContextMaybe sh = Map.lookup sh $ scriptTestContexts @era
 
 impGetScriptContext ::
-  forall era ls.
-  AlonzoEraImp ls era =>
+  forall era.
+  AlonzoEraImp era =>
   ScriptHash (EraCrypto era) ->
   ImpTestM era ScriptTestContext
 impGetScriptContext sh =

@@ -53,7 +53,6 @@ import Cardano.Ledger.Shelley (ShelleyEra)
 import Cardano.Ledger.Shelley.Core (EraGov)
 import Cardano.Ledger.Shelley.LedgerState (NewEpochState, curPParamsEpochStateL)
 import qualified Cardano.Ledger.Shelley.LedgerState as LedgerState
-import Cardano.Ledger.Shelley.LedgerState.Types (HasLedgerState (..))
 import Cardano.Ledger.Shelley.Rules ()
 import Cardano.Ledger.Shelley.Rules.Ledger (LedgerEnv)
 import qualified Cardano.Ledger.Shelley.Rules.Ledger as Ledger
@@ -117,6 +116,7 @@ class
   , STS (EraRule "LEDGER" era)
   , BaseM (EraRule "LEDGER" era) ~ ShelleyBase
   , Environment (EraRule "LEDGER" era) ~ LedgerEnv era
+  , State (EraRule "LEDGER" era) ~ MempoolState era
   , Signal (EraRule "LEDGER" era) ~ Tx era
   ) =>
   ApplyTx era
@@ -128,13 +128,10 @@ class
   -- 'TxInBlock' has had all checks run, and can now only fail due to checks
   -- which depend on the state; most notably, that UTxO inputs disappear.
   applyTx ::
-    ( MonadError (ApplyTxError era) m
-    , State (EraRule "LEDGER" era) ~ st era
-    , HasLedgerState st era
-    ) =>
+    MonadError (ApplyTxError era) m =>
     Globals ->
     MempoolEnv era ->
-    st era ->
+    MempoolState era ->
     Tx era ->
     m (MempoolState era, Validated (Tx era))
   applyTx globals env state tx =
@@ -144,7 +141,7 @@ class
             $ TRC (env, state, tx)
      in liftEither
           . left ApplyTxError
-          . right (\st -> (from st, Validated tx))
+          . right (,Validated tx)
           $ res
 
   -- | Reapply a previously validated 'Tx'.
@@ -160,15 +157,6 @@ class
   --   transactions against a new mempool state.
   reapplyTx ::
     MonadError (ApplyTxError era) m =>
-    Globals ->
-    MempoolEnv era ->
-    MempoolState era ->
-    Validated (Tx era) ->
-    m (MempoolState era)
-  default reapplyTx ::
-    ( MonadError (ApplyTxError era) m
-    , State (EraRule "LEDGER" era) ~ MempoolState era
-    ) =>
     Globals ->
     MempoolEnv era ->
     MempoolState era ->
@@ -289,7 +277,6 @@ applyTxs ::
   ( ApplyTx era
   , MonadError (ApplyTxError era) m
   , EraGov era
-  , State (EraRule "LEDGER" era) ~ LedgerState.LedgerState era
   ) =>
   Globals ->
   SlotNo ->
@@ -309,7 +296,6 @@ applyTxsTransition ::
   forall era m.
   ( ApplyTx era
   , MonadError (ApplyTxError era) m
-  , State (EraRule "LEDGER" era) ~ LedgerState.LedgerState era
   ) =>
   Globals ->
   MempoolEnv era ->

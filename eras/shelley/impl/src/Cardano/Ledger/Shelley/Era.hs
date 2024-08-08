@@ -3,7 +3,6 @@
 
 module Cardano.Ledger.Shelley.Era (
   ShelleyEra,
-  EraFirstRule,
   ShelleyBBODY,
   ShelleyDELEG,
   ShelleyDELEGS,
@@ -30,7 +29,6 @@ where
 import Cardano.Ledger.Coin (Coin)
 import Cardano.Ledger.Core (ByronEra, Era (..), EraRule, Value)
 import Cardano.Ledger.Crypto (Crypto)
-import GHC.TypeLits (Symbol)
 
 data ShelleyEra c
 
@@ -40,15 +38,6 @@ instance Crypto c => Era (ShelleyEra c) where
   type ProtVerLow (ShelleyEra c) = 2
 
   eraName = "Shelley"
-
-{- CIP-0118#era-first-rule
-
-  `EraFirstRule` is a type family declaring which rule is expected immediately after BBODY.
-
-  This is used to allow the state of whichever rule is declared to be different
-  to the state expected by LEDGERS. -}
-type family EraFirstRule era :: Symbol
-type instance EraFirstRule (ShelleyEra c) = "LEDGERS"
 
 type instance Value (ShelleyEra _c) = Coin
 

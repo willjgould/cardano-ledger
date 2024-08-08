@@ -1,7 +1,6 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Cardano.Ledger.Babel.Core (
-  BabelEraTxBody (..),
   ppPoolVotingThresholdsL,
   ppDRepVotingThresholdsL,
   ppCommitteeMinSizeL,
@@ -25,21 +24,12 @@ module Cardano.Ledger.Babel.Core (
   dvtPPTechnicalGroupL,
   dvtPPEconomicGroupL,
   dvtUpdateToConstitutionL,
-  BabelEraScript (..),
-  pattern VotingPurpose,
-  pattern ProposingPurpose,
   module Cardano.Ledger.Babbage.Core,
 )
 where
 
 import Cardano.Ledger.Babbage.Core
-import Cardano.Ledger.Babel.Scripts (
-  BabelEraScript (..),
-  pattern ProposingPurpose,
-  pattern VotingPurpose,
- )
 import Cardano.Ledger.Babel.Tx ()
-import Cardano.Ledger.Babel.TxBody (BabelEraTxBody (..))
 import Cardano.Ledger.Conway.PParams (
   DRepVotingThresholds (..),
   PoolVotingThresholds (..),

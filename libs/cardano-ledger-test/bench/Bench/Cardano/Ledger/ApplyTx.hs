@@ -89,7 +89,6 @@ benchApplyTx ::
   , ApplyTx era
   , HasTrace (EraRule "LEDGER" era) (GenEnv era)
   , BaseEnv (EraRule "LEDGER" era) ~ Globals
-  , State (EraRule "LEDGER" era) ~ LedgerState era
   , EraGov era
   ) =>
   Proxy era ->

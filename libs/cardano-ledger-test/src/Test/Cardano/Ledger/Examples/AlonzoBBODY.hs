@@ -47,7 +47,6 @@ import Cardano.Ledger.Plutus.Data (Data (..), hashData)
 import Cardano.Ledger.Plutus.Language (Language (..))
 import Cardano.Ledger.PoolParams (PoolMetadata (..))
 import Cardano.Ledger.SafeHash (hashAnnotated)
-import Cardano.Ledger.Shelley (EraFirstRule)
 import Cardano.Ledger.Shelley.API (
   CertState (..),
   DState (..),
@@ -139,7 +138,7 @@ alonzoBBODYexamplesP ::
   , Value era ~ MaryValue (EraCrypto era)
   , EraSegWits era
   , Reflect era
-  , State (EraRule (EraFirstRule era) era) ~ LedgerState era
+  , State (EraRule "LEDGERS" era) ~ LedgerState era
   ) =>
   Proof era ->
   TestTree
@@ -166,7 +165,7 @@ initialBBodyState ::
   ( EraTxOut era
   , PostShelley era
   , EraGov era
-  , State (EraRule (EraFirstRule era) era) ~ LedgerState era
+  , State (EraRule "LEDGERS" era) ~ LedgerState era
   ) =>
   Proof era ->
   UTxO era ->
@@ -611,8 +610,8 @@ testBBodyState ::
   , EraTxBody era
   , Value era ~ MaryValue (EraCrypto era)
   , EraGov era
-  , State (EraRule (EraFirstRule era) era) ~ LedgerState era
   , ShelleyEraTxCert era
+  , State (EraRule "LEDGERS" era) ~ LedgerState era
   ) =>
   Proof era ->
   ShelleyBbodyState era

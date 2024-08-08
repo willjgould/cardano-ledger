@@ -19,8 +19,8 @@ import Test.Cardano.Ledger.Common (Spec, describe)
 import qualified Test.Cardano.Ledger.Mary.Imp as MaryImp
 
 spec ::
-  forall era ls.
-  ( MaryEraImp ls era
+  forall era.
+  ( MaryEraImp era
   , AlonzoEraTx era
   , InjectRuleFailure "LEDGER" ShelleyUtxoPredFailure era
   , InjectRuleFailure "LEDGER" ShelleyUtxowPredFailure era
@@ -28,5 +28,5 @@ spec ::
   Spec
 spec = do
   MaryImp.spec @era
-  describe "AlonzoImpSpec" . withImpState @ls @era $ do
+  describe "AlonzoImpSpec" . withImpState @era $ do
     Utxos.spec @era

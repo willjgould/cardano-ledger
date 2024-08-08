@@ -13,6 +13,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# OPTIONS_GHC -Wno-unused-imports #-}
 
 module Cardano.Ledger.Babel.TxInfo (
   BabelContextError (..),
@@ -46,6 +47,7 @@ import Cardano.Ledger.Babel.Era (BabelEra)
 import Cardano.Ledger.Babel.Plutus.Context
 import Cardano.Ledger.Babel.Scripts (BabelPlutusPurpose (..), PlutusScript (..))
 import Cardano.Ledger.Babel.Tx ()
+import Cardano.Ledger.Babel.TxBody (ConwayEraTxBody (..))
 import Cardano.Ledger.Babel.TxCert
 import Cardano.Ledger.BaseTypes (
   Inject (..),
@@ -67,7 +69,6 @@ import Cardano.Ledger.Binary.Coders (
   (<!),
  )
 import Cardano.Ledger.Coin (Coin (..))
-import Cardano.Ledger.Conway.Core (ConwayEraTxBody (..))
 import Cardano.Ledger.Conway.Governance (
   Constitution (..),
   GovAction (..),
@@ -314,7 +315,7 @@ transTxInInfoV3 utxo txIn = do
 guardBabelFeaturesForPlutusV1V2 ::
   forall era.
   ( EraTx era
-  , BabelEraTxBody era
+  , ConwayEraTxBody era
   , Inject (BabelContextError era) (ContextError era)
   ) =>
   Tx era ->
@@ -673,7 +674,7 @@ transProtVer (ProtVer major minor) =
 
 {- CIP-0118#plutusv4-1
 
-  Here, we demonstrate the first change we need to reflect the necessary changes to 
+  Here, we demonstrate the first change we need to reflect the necessary changes to
   PlutusV4: the addition of our new fields to `TxInfo`.
 
   Jump to CIP-0118#plutusv4-2 to continue... -}
@@ -685,18 +686,12 @@ instance Crypto c => EraPlutusTxInfo 'PlutusV4 (BabelEra c) where
   toPlutusTxInfo proxy pp epochInfo systemStart utxo tx = do
     timeRange <- Alonzo.transValidityInterval pp epochInfo systemStart (txBody ^. vldtTxBodyL)
     inputs <- mapM (transTxInInfoV4 utxo) (Set.toList (txBody ^. inputsTxBodyL))
-    refInputs <- mapM (transTxInInfoV4 utxo) (Set.toList (txBody ^. referenceInputsTxBodyL))    
+    refInputs <- mapM (transTxInInfoV4 utxo) (Set.toList (txBody ^. referenceInputsTxBodyL))
     outputs <-
       zipWithM
         (Babbage.transTxOutV2 . TxOutFromOutput)
         [minBound ..]
         (F.toList (txBody ^. outputsTxBodyL))
-    fulfills <- mapM (transTxInInfoV4 utxo) (Set.toList (txBody ^. fulfillsTxBodyL))
-    requests <- zipWithM
-        (Babbage.transTxOutV2 . TxOutFromOutput)
-        [minBound ..]
-        (F.toList (txBody ^. requestsTxBodyL))
-    requiredTxs <- mapM (transTxInInfoV4 utxo) (Set.toList (txBody ^. requiredTxsTxBodyL))
     txCerts <- Alonzo.transTxBodyCerts proxy txBody
     plutusRedeemers <- Babbage.transTxRedeemers proxy tx
     pure
@@ -722,9 +717,9 @@ instance Crypto c => EraPlutusTxInfo 'PlutusV4 (BabelEra c) where
             case txBody ^. treasuryDonationTxBodyL of
               Coin 0 -> Nothing
               coin -> Just $ transCoinToLovelace coin
-        , PV4.txInfoFulfills = fulfills
-        , PV4.txInfoRequests = requests
-        , PV4.txInfoRequiredTxs = requiredTxs
+        , PV4.txInfoFulfills = mempty
+        , PV4.txInfoRequests = mempty
+        , PV4.txInfoRequiredTxs = mempty
         }
     where
       txBody = tx ^. bodyTxL

@@ -1,4 +1,6 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Cardano.Ledger.Babel.TxAuxData () where
@@ -17,7 +19,10 @@ import Cardano.Ledger.Babel.Era
 import Cardano.Ledger.Babel.Scripts ()
 import Cardano.Ledger.Crypto
 
-instance Crypto c => EraTxAuxData (BabelEra c) where
+instance
+  Crypto c =>
+  EraTxAuxData (BabelEra c)
+  where
   type TxAuxData (BabelEra c) = AlonzoTxAuxData (BabelEra c)
 
   mkBasicTxAuxData = AlonzoTxAuxData mempty mempty mempty
@@ -30,8 +35,14 @@ instance Crypto c => EraTxAuxData (BabelEra c) where
 
   validateTxAuxData = validateAlonzoTxAuxData
 
-instance Crypto c => AllegraEraTxAuxData (BabelEra c) where
+instance
+  Crypto c =>
+  AllegraEraTxAuxData (BabelEra c)
+  where
   timelockScriptsTxAuxDataL = timelockScriptsAlonzoTxAuxDataL
 
-instance Crypto c => AlonzoEraTxAuxData (BabelEra c) where
+instance
+  Crypto c =>
+  AlonzoEraTxAuxData (BabelEra c)
+  where
   plutusScriptsTxAuxDataL = plutusScriptsAllegraTxAuxDataL

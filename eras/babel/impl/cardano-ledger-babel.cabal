@@ -32,7 +32,6 @@ library
     exposed-modules:
         Cardano.Ledger.Babel.Era
         Cardano.Ledger.Babel.Genesis
-        Cardano.Ledger.Babel.LedgerState.Types
         Cardano.Ledger.Babel.PParams
         Cardano.Ledger.Babel.Tx
         Cardano.Ledger.Babel.TxBody
@@ -47,7 +46,6 @@ library
         Cardano.Ledger.Babel.Rules.Bbody
         Cardano.Ledger.Babel.Core
         Cardano.Ledger.Babel.TxCert
-        Cardano.Ledger.Babel.FRxO
         Cardano.Ledger.Babel.UTxO
         Cardano.Ledger.Babel.Plutus.Context
 
@@ -167,6 +165,8 @@ library testlib
         HUnit,
         cardano-ledger-byron,
         unliftio,
+        cardano-ledger-mary,
+        cardano-ledger-shelley-test,
 
 test-suite tests
     type:             exitcode-stdio-1.0
@@ -206,4 +206,4 @@ test-suite tests
         containers,
         data-default-class,
         microlens,
-        testlib
+        testlib,

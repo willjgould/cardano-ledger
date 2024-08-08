@@ -37,6 +37,7 @@ import Cardano.Ledger.Alonzo.Rules (
   AlonzoUtxowEvent (WrappedShelleyEraEvent),
   AlonzoUtxowPredFailure,
   hasExactSetOfRedeemers,
+  missingRequiredDatums,
   ppViewHashesMatch,
  )
 import qualified Cardano.Ledger.Alonzo.Rules as Alonzo (AlonzoUtxowPredFailure (..))
@@ -55,10 +56,9 @@ import qualified Cardano.Ledger.Babbage.Rules as Babbage (
 import Cardano.Ledger.Babbage.UTxO (getReferenceScripts)
 import Cardano.Ledger.Babel.Core
 import Cardano.Ledger.Babel.Era (BabelEra, BabelUTXO, BabelUTXOW)
-import Cardano.Ledger.Babel.FRxO
-import Cardano.Ledger.Babel.LedgerState.Types (UTxOStateTemp (..))
 import Cardano.Ledger.Babel.Rules.Utxo (BabelUtxoPredFailure)
 import Cardano.Ledger.Babel.Rules.Utxos (BabelUtxosPredFailure)
+import Cardano.Ledger.Babel.TxBody (ConwayEraTxBody)
 import Cardano.Ledger.Babel.UTxO (getBabelWitsVKeyNeeded)
 import Cardano.Ledger.BaseTypes (ShelleyBase, StrictMaybe)
 import Cardano.Ledger.Binary (DecCBOR (..), EncCBOR (..))
@@ -71,14 +71,15 @@ import Cardano.Ledger.Binary.Coders (
   (<!),
  )
 import Cardano.Ledger.CertState (CertState)
+import Cardano.Ledger.Conway.Core (ConwayEraScript)
 import Cardano.Ledger.Crypto (DSIGN, HASH)
-import Cardano.Ledger.FRxO (FRxO)
 import Cardano.Ledger.Keys (
   KeyHash,
   KeyRole (..),
   VKey,
  )
 import Cardano.Ledger.Rules.ValidationMode (runTest, runTestOnSignal)
+import Cardano.Ledger.Shelley.LedgerState (UTxOState (..))
 import Cardano.Ledger.Shelley.Rules (
   ShelleyUtxoPredFailure,
   ShelleyUtxowEvent (UtxoEvent),
@@ -113,7 +114,7 @@ import NoThunks.Class (InspectHeapNamed (..), NoThunks (..))
 import Validation (Validation, failureUnless)
 
 babelWitsVKeyNeeded ::
-  (EraTx era, BabelEraTxBody era) =>
+  (EraTx era, ConwayEraTxBody era) =>
   UTxO era ->
   TxBody era ->
   Set (KeyHash 'Witness (EraCrypto era))
@@ -220,13 +221,13 @@ instance InjectRuleFailure "UTXOW" AllegraUtxoPredFailure (BabelEra c) where
   injectFailure = UtxoFailure . injectFailure
 
 deriving instance
-  ( BabelEraScript era
+  ( ConwayEraScript era
   , Show (PredicateFailure (EraRule "UTXO" era))
   ) =>
   Show (BabelUtxowPredFailure era)
 
 deriving instance
-  ( BabelEraScript era
+  ( ConwayEraScript era
   , Eq (PredicateFailure (EraRule "UTXO" era))
   ) =>
   Eq (BabelUtxowPredFailure era)
@@ -237,7 +238,7 @@ deriving via
     NoThunks (BabelUtxowPredFailure era)
 
 instance
-  ( BabelEraScript era
+  ( ConwayEraScript era
   , NFData (TxCert era)
   , NFData (PredicateFailure (EraRule "UTXO" era))
   , NFData (VerKeyDSIGN (DSIGN (EraCrypto era)))
@@ -253,9 +254,8 @@ instance
   ( AlonzoEraTx era
   , AlonzoEraUTxO era
   , ScriptsNeeded era ~ AlonzoScriptsNeeded era
-  , BabelEraTxBody era
+  , ConwayEraTxBody era
   , Signable (DSIGN (EraCrypto era)) (Hash (HASH (EraCrypto era)) EraIndependentTxBody)
-  , Signable (DSIGN (EraCrypto era)) (Hash (HASH (EraCrypto era)) EraIndependentRequiredTxs)
   , EraRule "UTXOW" era ~ BabelUTXOW era
   , InjectRuleFailure "UTXOW" ShelleyUtxowPredFailure era
   , InjectRuleFailure "UTXOW" AlonzoUtxowPredFailure era
@@ -263,14 +263,14 @@ instance
   , -- Allow UTXOW to call UTXO
     Embed (EraRule "UTXO" era) (BabelUTXOW era)
   , Environment (EraRule "UTXO" era) ~ Shelley.UtxoEnv era
-  , State (EraRule "UTXO" era) ~ UTxOStateTemp era
+  , State (EraRule "UTXO" era) ~ UTxOState era
   , Signal (EraRule "UTXO" era) ~ Tx era
   , Eq (PredicateFailure (EraRule "UTXOS" era))
   , Show (PredicateFailure (EraRule "UTXOS" era))
   ) =>
   STS (BabelUTXOW era)
   where
-  type State (BabelUTXOW era) = UTxOStateTemp era
+  type State (BabelUTXOW era) = UTxOState era
   type Signal (BabelUTXOW era) = Tx era
   type Environment (BabelUTXOW era) = Shelley.UtxoEnv era
   type BaseM (BabelUTXOW era) = ShelleyBase
@@ -298,7 +298,7 @@ instance
 --------------------------------------------------------------------------------
 
 instance
-  ( BabelEraScript era
+  ( ConwayEraScript era
   , EncCBOR (PredicateFailure (EraRule "UTXO" era))
   ) =>
   EncCBOR (BabelUtxowPredFailure era)
@@ -325,7 +325,7 @@ instance
       MalformedReferenceScripts x -> Sum MalformedReferenceScripts 17 !> To x
 
 instance
-  ( BabelEraScript era
+  ( ConwayEraScript era
   , DecCBOR (PredicateFailure (EraRule "UTXO" era))
   ) =>
   DecCBOR (BabelUtxowPredFailure era)
@@ -406,11 +406,11 @@ babelUtxowTransition ::
   ( AlonzoEraTx era
   , AlonzoEraUTxO era
   , ScriptsNeeded era ~ AlonzoScriptsNeeded era
-  , BabelEraTxBody era
+  , ConwayEraTxBody era
   , Signable (DSIGN (EraCrypto era)) (Hash (HASH (EraCrypto era)) EraIndependentTxBody)
   , Environment (EraRule "UTXOW" era) ~ Shelley.UtxoEnv era
   , Signal (EraRule "UTXOW" era) ~ Tx era
-  , State (EraRule "UTXOW" era) ~ UTxOStateTemp era
+  , State (EraRule "UTXOW" era) ~ UTxOState era
   , InjectRuleFailure "UTXOW" ShelleyUtxowPredFailure era
   , InjectRuleFailure "UTXOW" AlonzoUtxowPredFailure era
   , InjectRuleFailure "UTXOW" BabbageUtxowPredFailure era
@@ -418,7 +418,7 @@ babelUtxowTransition ::
     Embed (EraRule "UTXO" era) (EraRule "UTXOW" era)
   , Environment (EraRule "UTXO" era) ~ Shelley.UtxoEnv era
   , Signal (EraRule "UTXO" era) ~ Tx era
-  , State (EraRule "UTXO" era) ~ UTxOStateTemp era
+  , State (EraRule "UTXO" era) ~ UTxOState era
   ) =>
   TransitionRule (EraRule "UTXOW" era)
 babelUtxowTransition = do
@@ -428,21 +428,18 @@ babelUtxowTransition = do
   {-  txb := txbody tx  -}
   {-  txw := txwits tx  -}
   {-  witsKeyHashes := { hashKey vk | vk ∈ dom(txwitsVKey txw) }  -}
-  let utxo = utxostUtxo u
-      frxo = utxostFrxo u
+  let utxo = utxosUtxo u
       txBody = tx ^. bodyTxL
       witsKeyHashes = witsFromTxWitnesses tx
       inputs =
         (txBody ^. referenceInputsTxBodyL)
           `Set.union` (txBody ^. inputsTxBodyL)
-          `Set.union` (txBody ^. fulfillsTxBodyL)
-          `Set.union` (txBody ^. requiredTxsTxBodyL)
 
   -- check scripts
   {- neededHashes := {h | ( , h) ∈ scriptsNeeded utxo txb} -}
   {- neededHashes − dom(refScripts tx utxo) = dom(txwitscripts txw) -}
-  let scriptsNeeded = getBabelScriptsNeededFrxo utxo frxo txBody
-      scriptsProvided = getScriptsProvided utxo tx <> getScriptsProvidedFrxo frxo tx
+  let scriptsNeeded = getScriptsNeeded utxo txBody
+      scriptsProvided = getScriptsProvided utxo tx
       scriptHashesNeeded = getScriptsHashesNeeded scriptsNeeded
   {- ∀s ∈ (txscripts txw utxo neededHashes ) ∩ Scriptph1 , validateScript s tx -}
   -- CHANGED In BABBAGE txscripts depends on UTxO
@@ -452,12 +449,11 @@ babelUtxowTransition = do
   let sReceived = Map.keysSet $ tx ^. witsTxL . scriptTxWitsL
       sRefs =
         Map.keysSet (getReferenceScripts utxo inputs)
-          <> Map.keysSet (getReferenceScriptsFrxo frxo inputs)
 
   runTest $ babbageMissingScripts pp scriptHashesNeeded sRefs sReceived
 
   {-  inputHashes ⊆  dom(txdats txw) ⊆  allowed -}
-  runTest $ missingRequiredDatumsFrxo utxo frxo tx
+  runTest $ missingRequiredDatums utxo tx
 
   {-  dom (txrdmrs tx) = { rdptr txb sp | (sp, h) ∈ scriptsNeeded utxo tx,
                            h ↦ s ∈ txscripts txw, s ∈ Scriptph2}     -}
@@ -471,7 +467,7 @@ babelUtxowTransition = do
   runTestOnSignal $ validateVerifiedWits tx
 
   {-  witsVKeyNeeded utxo tx genDelegs ⊆ witsKeyHashes                   -}
-  runTestOnSignal $ validateNeededWitnessesFrxo witsKeyHashes certState utxo frxo txBody -- TODO WG what should this actually do differently?
+  runTestOnSignal $ validateNeededWitnessesFrxo witsKeyHashes certState utxo txBody -- TODO WG what should this actually do differently?
 
   -- check metadata hash
   {-   adh := txADhash txb;  ad := auxiliaryData tx                      -}
@@ -498,16 +494,15 @@ babelUtxowTransition = do
 -- Given more time, I'd do something with the EraUTxO class.
 validateNeededWitnessesFrxo ::
   forall era.
-  (EraUTxO era, BabelEraTxBody era) =>
+  EraUTxO era =>
   -- | Provided witness
   Set (KeyHash 'Witness (EraCrypto era)) ->
   CertState era ->
   UTxO era ->
-  FRxO era ->
   TxBody era ->
   Validation (NonEmpty (ShelleyUtxowPredFailure era)) ()
-validateNeededWitnessesFrxo witsKeyHashes certState utxo frxo txBody =
-  let needed = getWitsVKeyNeededFrxo certState utxo frxo txBody
+validateNeededWitnessesFrxo witsKeyHashes certState utxo txBody =
+  let needed = getWitsVKeyNeeded certState utxo txBody
       missingWitnesses = Set.difference needed witsKeyHashes
    in failureUnless (Set.null missingWitnesses) $
         Shelley.MissingVKeyWitnessesUTXOW @era missingWitnesses

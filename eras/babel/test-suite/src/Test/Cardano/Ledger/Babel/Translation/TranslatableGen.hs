@@ -73,13 +73,10 @@ genTxBody l = do
     <*> arbitrary
     <*> arbitrary
     <*> arbitrary
-    <*> arbitrary
-    <*> arbitrary
-    <*> arbitrary
 
 genRedeemers ::
   forall era.
-  (AlonzoEraScript era, PlutusPurpose AsIx era ~ BabelPlutusPurpose AsIx era) =>
+  (PlutusPurpose AsIx era ~ BabelPlutusPurpose AsIx era, AlonzoEraScript era) =>
   Gen (Redeemers era)
 genRedeemers = do
   d <- arbitrary :: Gen (Data era)

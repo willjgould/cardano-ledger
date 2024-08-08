@@ -182,7 +182,6 @@ import Cardano.Ledger.Plutus.Language (Language (..))
 import Cardano.Ledger.PoolDistr (IndividualPoolStake (..), PoolDistr (..))
 import Cardano.Ledger.PoolParams (PoolParams (..))
 import Cardano.Ledger.SafeHash (SafeHash, extractHash, hashAnnotated)
-import Cardano.Ledger.Shelley (EraFirstRule)
 import Cardano.Ledger.Shelley.AdaPots (
   AdaPots (..),
   totalAdaES,
@@ -2228,9 +2227,7 @@ instance Reflect era => PrettyA (AllegraUtxoPredFailure era) where
 
 ppBbodyState ::
   forall era.
-  ( Reflect era
-  , State (EraRule (EraFirstRule era) era) ~ State (EraRule "LEDGERS" era)
-  ) =>
+  Reflect era =>
   ShelleyBbodyState era ->
   PDoc
 ppBbodyState (BbodyState ls (BlocksMade mp)) =
@@ -2241,10 +2238,7 @@ ppBbodyState (BbodyState ls (BlocksMade mp)) =
     ]
 
 instance
-  ( Reflect era
-  , State (EraRule (EraFirstRule era) era)
-      ~ State (EraRule "LEDGERS" era)
-  ) =>
+  Reflect era =>
   PrettyA (ShelleyBbodyState era)
   where
   prettyA = ppBbodyState

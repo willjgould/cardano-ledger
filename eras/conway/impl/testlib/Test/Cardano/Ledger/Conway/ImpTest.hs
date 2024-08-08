@@ -166,7 +166,6 @@ import Cardano.Ledger.Plutus.Language (SLanguage (..))
 import qualified Cardano.Ledger.Shelley.HardForks as HardForks (bootstrapPhase)
 import Cardano.Ledger.Shelley.LedgerState (
   IncrementalStake (..),
-  LedgerState,
   asTreasuryL,
   certVStateL,
   curPParamsEpochStateL,
@@ -259,7 +258,7 @@ instance
   , Signable (DSIGN c) (Hash (HASH c) EraIndependentTxBody)
   , Eq (ConwayGovEvent (ConwayEra c))
   ) =>
-  ShelleyEraImp LedgerState (ConwayEra c)
+  ShelleyEraImp (ConwayEra c)
   where
   initImpTestState = do
     kh <- fst <$> freshKeyPair
@@ -329,9 +328,9 @@ instance
   , DSIGN c ~ Ed25519DSIGN
   , Signable (DSIGN c) (Hash (HASH c) EraIndependentTxBody)
   ) =>
-  MaryEraImp LedgerState (ConwayEra c)
+  MaryEraImp (ConwayEra c)
 
-instance ShelleyEraImp ls (ConwayEra c) => AlonzoEraImp ls (ConwayEra c) where
+instance ShelleyEraImp (ConwayEra c) => AlonzoEraImp (ConwayEra c) where
   scriptTestContexts =
     plutusTestScripts SPlutusV1
       <> plutusTestScripts SPlutusV2
@@ -339,7 +338,7 @@ instance ShelleyEraImp ls (ConwayEra c) => AlonzoEraImp ls (ConwayEra c) where
       <> plutusTestScripts SPlutusV4
 
 class
-  ( AlonzoEraImp LedgerState era
+  ( AlonzoEraImp era
   , ConwayEraGov era
   , ConwayEraTxBody era
   , STS (EraRule "ENACT" era)
@@ -375,8 +374,8 @@ registerInitialCommittee = do
 -- | Submit a transaction that registers a new DRep and return the keyhash
 -- belonging to that DRep
 registerDRep ::
-  forall era ls.
-  ( ShelleyEraImp ls era
+  forall era.
+  ( ShelleyEraImp era
   , ConwayEraTxCert era
   ) =>
   ImpTestM era (KeyHash 'DRepRole (EraCrypto era))
@@ -401,9 +400,9 @@ registerDRep = do
 -- that could count as delegated stake to the DRep, so that we can test that
 -- rewards are also calculated nonetheless.
 setupDRepWithoutStake ::
-  forall era ls.
+  forall era.
   ( ConwayEraTxCert era
-  , ShelleyEraImp ls era
+  , ShelleyEraImp era
   ) =>
   ImpTestM
     era
@@ -428,9 +427,9 @@ setupDRepWithoutStake = do
 
 -- | Registers a new DRep and delegates the specified amount of ADA to it.
 setupSingleDRep ::
-  forall era ls.
+  forall era.
   ( ConwayEraTxCert era
-  , ShelleyEraImp ls era
+  , ShelleyEraImp era
   ) =>
   Integer ->
   ImpTestM
@@ -471,7 +470,7 @@ getsPParams f = getsNES $ nesEsL . curPParamsEpochStateL . f
 -- in Conway. The Shelley version of this function would have to separately
 -- register the staking credential and then delegate it.
 setupPoolWithStake ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxCert era
   ) =>
   Coin ->
@@ -503,7 +502,7 @@ setupPoolWithStake delegCoin = do
   pure (khPool, credDelegatorPayment, credDelegatorStaking)
 
 setupPoolWithoutStake ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxCert era
   ) =>
   ImpTestM
@@ -530,7 +529,7 @@ setupPoolWithoutStake = do
 -- | Submits a transaction with a Vote for the given governance action as
 -- some voter
 submitVote ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   , HasCallStack
   ) =>
@@ -543,7 +542,7 @@ submitVote vote voter gaId = trySubmitVote vote voter gaId >>= expectRightDeep
 -- | Submits a transaction that votes "Yes" for the given governance action as
 -- some voter
 submitYesVote_ ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   , HasCallStack
   ) =>
@@ -553,7 +552,7 @@ submitYesVote_ ::
 submitYesVote_ voter gaId = void $ submitVote VoteYes voter gaId
 
 submitVote_ ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   , HasCallStack
   ) =>
@@ -564,7 +563,7 @@ submitVote_ ::
 submitVote_ vote voter gaId = void $ submitVote vote voter gaId
 
 submitFailingVote ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   , HasCallStack
   ) =>
@@ -578,7 +577,7 @@ submitFailingVote voter gaId expectedFailure =
 -- | Submits a transaction that votes "Yes" for the given governance action as
 -- some voter, and expects an `Either` result.
 trySubmitVote ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   ) =>
   Vote ->
@@ -610,7 +609,7 @@ trySubmitVote vote voter gaId =
           )
 
 submitProposal_ ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   , HasCallStack
   ) =>
@@ -619,7 +618,7 @@ submitProposal_ ::
 submitProposal_ = void . submitProposal
 
 submitProposal ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   , HasCallStack
   ) =>
@@ -628,7 +627,7 @@ submitProposal ::
 submitProposal proposal = trySubmitProposal proposal >>= expectRightExpr
 
 submitProposals ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraGov era
   , ConwayEraTxBody era
   , HasCallStack
@@ -658,7 +657,7 @@ submitProposals proposals = do
 
 -- | Submits a transaction that proposes the given proposal
 trySubmitProposal ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   ) =>
   ProposalProcedure era ->
@@ -680,7 +679,7 @@ trySubmitProposal proposal = do
     Left err -> Left err
 
 trySubmitProposals ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   ) =>
   NE.NonEmpty (ProposalProcedure era) ->
@@ -693,7 +692,7 @@ trySubmitProposals proposals = do
       .~ GHC.fromList (toList proposals)
 
 submitFailingProposal ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   , HasCallStack
   ) =>
@@ -706,7 +705,7 @@ submitFailingProposal proposal expectedFailure =
 -- | Submits a transaction that proposes the given governance action. For proposing
 -- multiple actions in the same transaciton use `trySubmitGovActions` instead.
 trySubmitGovAction ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   ) =>
   GovAction era ->
@@ -741,7 +740,7 @@ submitAndExpireProposalToMakeReward expectedReward stakingC = do
 
 -- | Submits a transaction that proposes the given governance action
 trySubmitGovActions ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   ) =>
   NE.NonEmpty (GovAction era) ->
@@ -760,8 +759,8 @@ trySubmitGovActions gas = do
   trySubmitProposals proposals
 
 submitGovAction ::
-  forall era ls.
-  ( ShelleyEraImp ls era
+  forall era.
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   , HasCallStack
   ) =>
@@ -772,8 +771,8 @@ submitGovAction ga = do
   pure gaId
 
 submitGovAction_ ::
-  forall era ls.
-  ( ShelleyEraImp ls era
+  forall era.
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   , HasCallStack
   ) =>
@@ -782,8 +781,8 @@ submitGovAction_ ::
 submitGovAction_ = void . submitGovAction
 
 submitGovActions ::
-  forall era ls.
-  ( ShelleyEraImp ls era
+  forall era.
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   , HasCallStack
   ) =>
@@ -795,7 +794,7 @@ submitGovActions gas = do
   pure $ NE.zipWith (\idx _ -> GovActionId txId (GovActionIx idx)) (0 NE.:| [1 ..]) gas
 
 submitTreasuryWithdrawals ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   , ConwayEraGov era
   ) =>
@@ -833,8 +832,8 @@ getGovPolicy =
     nesEpochStateL . epochStateGovStateL . constitutionGovStateL . constitutionScriptL
 
 submitFailingGovAction ::
-  forall era ls.
-  ( ShelleyEraImp ls era
+  forall era.
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   , HasCallStack
   ) =>
@@ -1182,7 +1181,7 @@ logRatificationChecks gaId = do
 -- | Submits a transaction that registers a hot key for the given cold key.
 -- Returns the hot key hash.
 registerCommitteeHotKey ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxCert era
   ) =>
   Credential 'ColdCommitteeRole (EraCrypto era) ->
@@ -1198,7 +1197,7 @@ registerCommitteeHotKey coldKey = do
 
 -- | Submits a transaction that resigns the cold key
 resignCommitteeColdKey ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxCert era
   ) =>
   Credential 'ColdCommitteeRole (EraCrypto era) ->
@@ -1317,7 +1316,7 @@ proposalsShowDebug ps showRoots =
       <> ["----- Proposals End -----"]
 
 submitConstitutionGovAction ::
-  ( ShelleyEraImp ls era
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   ) =>
   StrictMaybe (GovActionId (EraCrypto era)) ->

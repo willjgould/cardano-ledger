@@ -55,13 +55,6 @@ import Cardano.Ledger.Alonzo.TxWits (Redeemers (..), TxDats (..))
 import Cardano.Ledger.Alonzo.UTxO (AlonzoScriptsNeeded (..))
 import Cardano.Ledger.Babel (BabelEra)
 import Cardano.Ledger.Babel.Core hiding (proposals)
-import Cardano.Ledger.Babel.LedgerState.Types (
-  LedgerStateTemp (LedgerStateTemp),
-  UTxOStateTemp (UTxOStateTemp),
-  lstUtxoStateL,
-  utxostFrxoL,
-  utxostUtxoL,
- )
 import Cardano.Ledger.Babel.TxCert (
   BabelEraTxCert,
   Delegatee (..),
@@ -114,7 +107,7 @@ import Cardano.Ledger.Conway.Rules (
 import Cardano.Ledger.Conway.TxCert (ConwayEraTxCert (..))
 import Cardano.Ledger.Core
 import Cardano.Ledger.Credential (Credential (..), StakeReference (..), credToText)
-import Cardano.Ledger.Crypto (Crypto (..))
+import Cardano.Ledger.Crypto (Crypto (..), StandardCrypto)
 import Cardano.Ledger.DRep
 import Cardano.Ledger.EpochBoundary (emptySnapShots)
 import Cardano.Ledger.Keys (
@@ -139,9 +132,10 @@ import UnliftIO.Exception (
 
 import Cardano.Crypto.VRF.Class (VRFAlgorithm)
 import Cardano.Ledger.Babbage.Tx (hashScriptIntegrity)
-import Cardano.Ledger.FRxO (FRxO)
 import Cardano.Ledger.Keys (WitVKey (..))
 import Cardano.Ledger.Keys.WitVKey (witVKeyHash)
+import Cardano.Ledger.Mary (Mary, MaryValue (..))
+import Cardano.Ledger.Mary.Value (AssetName (..), MultiAsset (..), PolicyID (..))
 import Cardano.Ledger.Plutus.Data (Datum (..))
 import qualified Cardano.Ledger.Plutus.Data as PlutusData
 import Cardano.Ledger.Plutus.Language (Language (PlutusV1), Plutus, PlutusLanguage, SLanguage (..))
@@ -156,7 +150,6 @@ import qualified Cardano.Ledger.Shelley.HardForks as HardForks (bootstrapPhase)
 import Cardano.Ledger.Shelley.LedgerState (
   AccountState (..),
   EpochState (..),
-  HasLedgerState,
   IncrementalStake (..),
   LedgerState (..),
   NewEpochState (..),
@@ -170,7 +163,6 @@ import Cardano.Ledger.Shelley.LedgerState (
   epochStateUMapL,
   esAccountStateL,
   esLStateL,
-  from,
   lsCertStateL,
   lsUTxOStateL,
   nesELL,
@@ -310,12 +302,8 @@ conwayModifyPParams f = modifyNES $ \nes ->
           DRComplete snapshot (ratifyState & rsEnactStateL . ensCurPParamsL %~ f)
 
 withImpStateWithProtVer ::
-  forall c.
-  ( DSIGN c ~ Ed25519DSIGN
-  , Crypto c
-  ) =>
   Version ->
-  SpecWith (ImpTestState (BabelEra c)) ->
+  SpecWith (ImpTestState (BabelEra StandardCrypto)) ->
   Spec
 withImpStateWithProtVer ver = do
   withImpStateModified $
@@ -323,7 +311,7 @@ withImpStateWithProtVer ver = do
       . nesEsL
       . esLStateL
       . lsUTxOStateL
-      . (utxosGovStateL @(BabelEra c))
+      . (utxosGovStateL @(BabelEra StandardCrypto))
       . cgsCurPParamsL
       %~ ( \(PParams pp) ->
             PParams (pp {cppProtocolVersion = ProtVer ver 0})
@@ -585,7 +573,6 @@ registerInitialCommittee ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   ImpTestM (BabelEra c) (NonEmpty (Credential 'HotCommitteeRole (EraCrypto (BabelEra c))))
@@ -605,7 +592,6 @@ registerDRep ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   ImpTestM (BabelEra c) (KeyHash 'DRepRole (EraCrypto (BabelEra c)))
@@ -637,7 +623,6 @@ setupDRepWithoutStake ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   ImpTestM
@@ -670,7 +655,6 @@ setupSingleDRep ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   Integer ->
@@ -718,7 +702,6 @@ setupPoolWithStake ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   Coin ->
@@ -756,7 +739,6 @@ setupPoolWithoutStake ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   ImpTestM
@@ -783,12 +765,11 @@ setupPoolWithoutStake = do
 -- | Submits a transaction with a Vote for the given governance action as
 -- some voter
 submitVote ::
-  ( BabelEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra c)
   , HasCallStack
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   Vote ->
@@ -800,12 +781,11 @@ submitVote vote voter gaId = trySubmitVote vote voter gaId >>= expectRightDeep
 -- | Submits a transaction that votes "Yes" for the given governance action as
 -- some voter
 submitYesVote_ ::
-  ( BabelEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra c)
   , HasCallStack
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   Voter (EraCrypto (BabelEra c)) ->
@@ -814,12 +794,11 @@ submitYesVote_ ::
 submitYesVote_ voter gaId = void $ submitVote VoteYes voter gaId
 
 submitVote_ ::
-  ( BabelEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra c)
   , HasCallStack
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   Vote ->
@@ -829,12 +808,11 @@ submitVote_ ::
 submitVote_ vote voter gaId = void $ submitVote vote voter gaId
 
 submitFailingVote ::
-  ( BabelEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra c)
   , HasCallStack
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   Voter (EraCrypto (BabelEra c)) ->
@@ -847,11 +825,10 @@ submitFailingVote voter gaId expectedFailure =
 -- | Submits a transaction that votes "Yes" for the given governance action as
 -- some voter, and expects an `Either` result.
 trySubmitVote ::
-  ( BabelEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra c)
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   Vote ->
@@ -883,12 +860,11 @@ trySubmitVote vote voter gaId =
           )
 
 submitProposal_ ::
-  ( BabelEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra c)
   , HasCallStack
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   ProposalProcedure (BabelEra c) ->
@@ -896,12 +872,11 @@ submitProposal_ ::
 submitProposal_ = void . submitProposal
 
 submitProposal ::
-  ( BabelEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra c)
   , HasCallStack
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   ProposalProcedure (BabelEra c) ->
@@ -910,12 +885,11 @@ submitProposal proposal = trySubmitProposal proposal >>= expectRightExpr
 
 submitProposals ::
   ( ConwayEraGov (BabelEra c)
-  , BabelEraTxBody (BabelEra c)
+  , ConwayEraTxBody (BabelEra c)
   , HasCallStack
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   NE.NonEmpty (ProposalProcedure (BabelEra c)) ->
@@ -946,7 +920,6 @@ trySubmitProposal ::
   ( Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   ProposalProcedure (BabelEra c) ->
@@ -972,7 +945,6 @@ trySubmitProposals ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   ) =>
   NE.NonEmpty (ProposalProcedure (BabelEra c)) ->
   ImpTestM
@@ -986,12 +958,11 @@ trySubmitProposals proposals = do
       .~ GHC.fromList (toList proposals)
 
 submitFailingProposal ::
-  ( BabelEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra c)
   , HasCallStack
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   ProposalProcedure (BabelEra c) ->
@@ -1008,7 +979,6 @@ trySubmitGovAction ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   GovAction (BabelEra c) ->
@@ -1026,7 +996,6 @@ submitAndExpireProposalToMakeReward ::
   ( Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   Int ->
@@ -1053,7 +1022,6 @@ trySubmitGovActions ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   NE.NonEmpty (GovAction (BabelEra c)) ->
@@ -1075,14 +1043,13 @@ trySubmitGovActions gas = do
 
 submitGovAction ::
   forall c.
-  ( BabelEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra c)
   , HasCallStack
   , NFData (SigDSIGN (DSIGN c))
   , NFData (VerKeyDSIGN (DSIGN c))
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   GovAction (BabelEra c) ->
@@ -1093,14 +1060,13 @@ submitGovAction ga = do
 
 submitGovAction_ ::
   forall c.
-  ( BabelEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra c)
   , HasCallStack
   , NFData (SigDSIGN (DSIGN c))
   , NFData (VerKeyDSIGN (DSIGN c))
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   GovAction (BabelEra c) ->
@@ -1109,14 +1075,13 @@ submitGovAction_ = void . submitGovAction
 
 submitGovActions ::
   forall c.
-  ( BabelEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra c)
   , HasCallStack
   , NFData (SigDSIGN (DSIGN c))
   , NFData (VerKeyDSIGN (DSIGN c))
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   NE.NonEmpty (GovAction (BabelEra c)) ->
@@ -1127,14 +1092,13 @@ submitGovActions gas = do
   pure $ NE.zipWith (\idx _ -> GovActionId txId (GovActionIx idx)) (0 NE.:| [1 ..]) gas
 
 submitTreasuryWithdrawals ::
-  ( BabelEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra c)
   , ConwayEraGov (BabelEra c)
   , NFData (SigDSIGN (DSIGN c))
   , NFData (VerKeyDSIGN (DSIGN c))
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   [(RewardAccount (EraCrypto (BabelEra c)), Coin)] ->
@@ -1150,7 +1114,6 @@ enactTreasuryWithdrawals ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   ) =>
   [(RewardAccount (EraCrypto (BabelEra c)), Coin)] ->
   Credential 'DRepRole (EraCrypto (BabelEra c)) ->
@@ -1169,7 +1132,6 @@ submitParameterChange ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   StrictMaybe (GovActionId (EraCrypto (BabelEra c))) ->
@@ -1188,14 +1150,13 @@ getGovPolicy =
 
 submitFailingGovAction ::
   forall c.
-  ( BabelEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra c)
   , HasCallStack
   , NFData (SigDSIGN (DSIGN c))
   , NFData (VerKeyDSIGN (DSIGN c))
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   GovAction (BabelEra c) ->
@@ -1554,7 +1515,6 @@ registerCommitteeHotKey ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   Credential 'ColdCommitteeRole (EraCrypto (BabelEra c)) ->
@@ -1576,7 +1536,6 @@ resignCommitteeColdKey ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   Credential 'ColdCommitteeRole (EraCrypto (BabelEra c)) ->
@@ -1598,7 +1557,6 @@ electCommittee ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   ) =>
   StrictMaybe (GovPurposeId 'CommitteePurpose (BabelEra c)) ->
   Credential 'DRepRole (EraCrypto (BabelEra c)) ->
@@ -1626,7 +1584,6 @@ electBasicCommittee ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   ImpTestM
@@ -1709,13 +1666,12 @@ proposalsShowDebug ps showRoots =
       <> ["----- Proposals End -----"]
 
 submitConstitutionGovAction ::
-  ( BabelEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra c)
   , NFData (SigDSIGN (DSIGN c))
   , NFData (VerKeyDSIGN (DSIGN c))
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   StrictMaybe (GovActionId (EraCrypto (BabelEra c))) ->
@@ -1798,7 +1754,6 @@ enactConstitution ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   StrictMaybe (GovPurposeId 'ConstitutionPurpose (BabelEra c)) ->
@@ -1843,7 +1798,6 @@ submitConstitution ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   StrictMaybe (GovPurposeId 'ConstitutionPurpose (BabelEra c)) ->
@@ -1977,8 +1931,7 @@ impWitsVKeyNeeded txBody = do
   pure (bootAddrs, allKeyHashes Set.\\ bootKeyHashes)
 
 data ImpTestState era = ImpTestState
-  { impLST :: !(LedgerStateTemp era)
-  , impNES :: !(NewEpochState era)
+  { impNES :: !(NewEpochState era)
   , impRootTxIn :: !(TxIn (EraCrypto era))
   , impKeyPairs :: !(forall k. Map (KeyHash k (EraCrypto era)) (KeyPair k (EraCrypto era)))
   , impByronKeyPairs :: !(Map (BootstrapAddress (EraCrypto era)) ByronKeyPair)
@@ -2217,9 +2170,6 @@ impLogL = lens impLog (\x y -> x {impLog = y})
 
 impNESL :: Lens' (ImpTestState era) (NewEpochState era)
 impNESL = lens impNES (\x y -> x {impNES = y})
-
-impLSTL :: Lens' (ImpTestState era) (LedgerStateTemp era)
-impLSTL = lens impLST (\x y -> x {impLST = y})
 
 impLastTickL :: Lens' (ImpTestState era) SlotNo
 impLastTickL = lens impLastTick (\x y -> x {impLastTick = y})
@@ -2504,7 +2454,6 @@ submitTx_ ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   ) =>
   Tx (BabelEra c) ->
   ImpTestM (BabelEra c) ()
@@ -2518,7 +2467,6 @@ submitTx ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   ) =>
   Tx (BabelEra c) ->
   ImpTestM (BabelEra c) (Tx (BabelEra c))
@@ -2531,7 +2479,6 @@ trySubmitTx ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   ) =>
   Tx (BabelEra c) ->
   ImpTestM
@@ -2543,7 +2490,7 @@ trySubmitTx tx = do
   st <- gets impNES
   lEnv <- impLedgerEnv st
   ImpTestState {impRootTxIn} <- get
-  res <- tryRunImpRule @"LEDGER" lEnv (from $ st ^. nesEsL . esLStateL) txFixed
+  res <- tryRunImpRule @"LEDGER" lEnv (st ^. nesEsL . esLStateL) txFixed
   case res of
     Left predFailures -> do
       -- Verify that produced predicate failures are ready for the node-to-client protocol
@@ -2556,7 +2503,7 @@ trySubmitTx tx = do
             | outsSize > 0 = outsSize - 1
             | otherwise = error ("Expected at least 1 output after submitting tx: " <> show txId)
       tell $ fmap (SomeSTSEvent @(BabelEra c) @"LEDGER") events
-      modify $ impNESL . nesEsL . esLStateL .~ from st'
+      modify $ impNESL . nesEsL . esLStateL .~ st'
       UTxO utxo <- getUTxO
       -- This TxIn is in the utxo, and thus can be the new root, only if the transaction
       -- was phase2-valid.  Otherwise, no utxo with this id would have been created, and
@@ -2589,7 +2536,6 @@ submitFailingTx ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   ) =>
   Tx (BabelEra c) ->
   NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra c))) ->
@@ -2751,25 +2697,23 @@ logToExpr :: (HasCallStack, ToExpr a) => a -> ImpTestM (BabelEra c) ()
 logToExpr e = logEntry (showExpr e)
 
 withImpState ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
-  SpecWith (ImpTestState (BabelEra c)) ->
+  SpecWith (ImpTestState (BabelEra StandardCrypto)) ->
   Spec
 withImpState = withImpStateModified id
 
-initLedgerState :: Crypto c => LedgerStateTemp (BabelEra c)
+initLedgerState :: Crypto c => LedgerState (BabelEra c)
 initLedgerState =
-  from $
-    LedgerState
-      { lsUTxOState =
-          smartUTxOState
-            emptyPParams
-            mempty
-            zero
-            zero
-            emptyGovState
-            mempty
-      , lsCertState = def
-      }
+  LedgerState
+    { lsUTxOState =
+        smartUTxOState
+          emptyPParams
+          mempty
+          zero
+          zero
+          emptyGovState
+          mempty
+    , lsCertState = def
+    }
 
 genesisCoins ::
   TxId (EraCrypto era) ->
@@ -2779,9 +2723,9 @@ genesisCoins genesisTxId outs =
   UTxO $
     Map.fromList [(TxIn genesisTxId idx, out) | (idx, out) <- zip [minBound ..] outs]
 
--- initUTxO :: Crypto c => UTxOStateTemp (BabelEra c)
+-- initUTxO :: Crypto c => UTxOState (BabelEra c)
 -- initUTxO =
---   UTxOStateTemp
+--   UTxOState
 --     mempty
 --     mempty
 --     (Coin 0)
@@ -2791,9 +2735,8 @@ genesisCoins genesisTxId outs =
 --     mempty
 
 withImpStateModified ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
-  (ImpTestState (BabelEra c) -> ImpTestState (BabelEra c)) ->
-  SpecWith (ImpTestState (BabelEra c)) ->
+  (ImpTestState (BabelEra StandardCrypto) -> ImpTestState (BabelEra StandardCrypto)) ->
+  SpecWith (ImpTestState (BabelEra StandardCrypto)) ->
   Spec
 withImpStateModified f =
   beforeAll $
@@ -2802,8 +2745,7 @@ withImpStateModified f =
   where
     impTestState0 =
       ImpTestState
-        { impLST = initLedgerState
-        , impNES = initBabelImpNES $ from initLedgerState
+        { impNES = initBabelImpNES initLedgerState
         , impRootTxIn = rootTxIn
         , impKeyPairs = mempty
         , impByronKeyPairs = mempty
@@ -2819,14 +2761,31 @@ withImpStateModified f =
     addRootTxOut = do
       (rootKeyHash, _) <- freshKeyPair
       let rootAddr = Addr Testnet (KeyHashObj rootKeyHash) StakeRefNull
-          rootTxOut = mkBasicTxOut rootAddr $ inject rootCoin
+          rootTxOut = mkBasicTxOut rootAddr $ MaryValue rootCoin smallValue
       impNESL
         . nesEsL
         . esLStateL
         . lsUTxOStateL
         . utxosUtxoL
         %= (<> UTxO (Map.singleton rootTxIn rootTxOut))
-      impLSTL . lstUtxoStateL . utxostUtxoL %= (<> UTxO (Map.singleton rootTxIn rootTxOut))
+
+-- This is the most lax policy possible, requiring no authorization at all.
+purplePolicy :: Timelock Mary
+purplePolicy = RequireAllOf (SSeq.fromList [])
+
+purplePolicyId :: PolicyID StandardCrypto
+purplePolicyId = PolicyID $ hashScript @Mary purplePolicy
+
+plum :: AssetName
+plum = AssetName "plum"
+
+amethyst :: AssetName
+amethyst = AssetName "amethyst"
+
+smallValue :: MultiAsset StandardCrypto
+smallValue =
+  MultiAsset $
+    Map.singleton purplePolicyId (Map.fromList [(plum, 13), (amethyst, 2)])
 
 testKeyHash :: Crypto c => KeyHash kd c
 testKeyHash = mkKeyHash (-1)
@@ -3093,7 +3052,6 @@ sendCoinTo ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   ) =>
   Addr (EraCrypto (BabelEra c)) ->
   Coin ->
@@ -3108,7 +3066,6 @@ sendValueTo ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   ) =>
   Addr (EraCrypto (BabelEra c)) ->
   Value (BabelEra c) ->
@@ -3131,14 +3088,8 @@ modifyNES = (impNESL %=)
 getsNES :: SimpleGetter (NewEpochState (BabelEra c)) a -> ImpTestM (BabelEra c) a
 getsNES l = gets . view $ impNESL . l
 
-getsLST :: SimpleGetter (LedgerStateTemp (BabelEra c)) a -> ImpTestM (BabelEra c) a
-getsLST l = gets . view $ impLSTL . l
-
 getUTxO :: ImpTestM (BabelEra c) (UTxO (BabelEra c))
 getUTxO = getsNES $ nesEsL . esLStateL . lsUTxOStateL . utxosUtxoL
-
-getFRxO :: ImpTestM (BabelEra c) (FRxO (BabelEra c))
-getFRxO = getsLST $ lstUtxoStateL . utxostFrxoL
 
 getProtVer :: EraGov (BabelEra c) => ImpTestM (BabelEra c) ProtVer
 getProtVer = getsNES $ nesEsL . curPParamsEpochStateL . ppProtocolVersionL
@@ -3151,7 +3102,6 @@ submitTxAnn ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   ) =>
   String ->
   Tx (BabelEra c) ->
@@ -3166,7 +3116,6 @@ submitTxAnn_ ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   ) =>
   String ->
   Tx (BabelEra c) ->
@@ -3188,7 +3137,6 @@ registerRewardAccount ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   ImpTestM (BabelEra c) (RewardAccount (EraCrypto (BabelEra c)))
@@ -3231,7 +3179,6 @@ registerPool ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   ImpTestM (BabelEra c) (KeyHash 'StakePool (EraCrypto (BabelEra c)))
@@ -3265,7 +3212,6 @@ registerAndRetirePoolToMakeReward ::
   , Signable
       (DSIGN c)
       (Hash (HASH c) EraIndependentTxBody)
-  , Signable (DSIGN c) (Hash (HASH c) EraIndependentRequiredTxs)
   , Crypto c
   ) =>
   Credential 'Staking (EraCrypto (BabelEra c)) ->

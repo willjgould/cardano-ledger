@@ -27,8 +27,8 @@ import Test.Cardano.Ledger.Shelley.ImpTest (
  )
 
 spec ::
-  forall era ls.
-  ShelleyEraImp ls era =>
+  forall era.
+  ShelleyEraImp era =>
   SpecWith (ImpTestState era)
 spec = describe "EPOCH" $ do
   it "Runs basic transaction" $ do

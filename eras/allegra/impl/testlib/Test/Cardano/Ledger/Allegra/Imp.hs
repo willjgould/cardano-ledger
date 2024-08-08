@@ -14,8 +14,8 @@ import qualified Test.Cardano.Ledger.Shelley.Imp as ShelleyImp
 import Test.Cardano.Ledger.Shelley.ImpTest (ShelleyEraImp)
 
 spec ::
-  forall era ls.
-  ( ShelleyEraImp ls era
+  forall era.
+  ( ShelleyEraImp era
   , InjectRuleFailure "LEDGER" ShelleyUtxoPredFailure era
   , InjectRuleFailure "LEDGER" ShelleyUtxowPredFailure era
   ) =>

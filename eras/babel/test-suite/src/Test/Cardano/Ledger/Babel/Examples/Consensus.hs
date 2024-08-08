@@ -21,7 +21,6 @@ module Test.Cardano.Ledger.Babel.Examples.Consensus where
 -- import Cardano.Ledger.Babel.Core
 -- import Cardano.Ledger.Babel.Genesis (BabelGenesis (..))
 -- import Cardano.Ledger.Babel.Rules (BabelLEDGER)
--- import Cardano.Ledger.Babel.Scripts (BabelPlutusPurpose (..))
 -- import Cardano.Ledger.Babel.Translation ()
 -- import Cardano.Ledger.Babel.Tx (AlonzoTx (..))
 -- import Cardano.Ledger.Babel.TxBody (BabelTxBody (..))

@@ -22,7 +22,7 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Cardano.Ledger.Babel.TxBody (
-  BabelEraTxBody (..),
+  ConwayEraTxBody (..),
   BabelTxBody (
     BabelTxBody,
     bbtbSpendInputs,
@@ -43,10 +43,7 @@ module Cardano.Ledger.Babel.TxBody (
     bbtbVotingProcedures,
     bbtbProposalProcedures,
     bbtbCurrentTreasuryValue,
-    bbtbTreasuryDonation,
-    bbtbFulfills,
-    bbtbRequests,
-    bbtbRequiredTxs
+    bbtbTreasuryDonation
   ),
   BabelTxBodyRaw,
 ) where
@@ -60,10 +57,11 @@ import Cardano.Ledger.Babbage.TxBody (
   babbageSpendableInputsTxBodyF,
  )
 import Cardano.Ledger.Babel.Era (BabelEra)
-import Cardano.Ledger.Babel.Scripts (BabelEraScript, BabelPlutusPurpose (..))
+
+-- BabelTxCert (..),
+
+import Cardano.Ledger.Babel.Scripts (BabelPlutusPurpose (..))
 import Cardano.Ledger.Babel.TxCert (
-  BabelEraTxCert,
-  -- BabelTxCert (..),
   BabelTxCertUpgradeError,
  )
 import Cardano.Ledger.Babel.TxOut ()
@@ -91,12 +89,9 @@ import Cardano.Ledger.Binary.Coders (
   (!>),
  )
 import Cardano.Ledger.Coin (Coin (..), decodePositiveCoin)
-import Cardano.Ledger.Conway.Core (ConwayEraScript (mkVotingPurpose), ConwayEraTxBody (..))
+import Cardano.Ledger.Conway.Core (ConwayEraTxBody (..))
 import Cardano.Ledger.Conway.Governance (ProposalProcedure, VotingProcedures (..))
-import Cardano.Ledger.Conway.PParams (ConwayEraPParams)
-import Cardano.Ledger.Conway.Scripts (
-  ConwayEraScript (mkProposingPurpose, toProposingPurpose, toVotingPurpose),
- )
+import Cardano.Ledger.Conway.Scripts ()
 import Cardano.Ledger.Conway.TxBody (
   ConwayTxBody (..),
   conwayTotalDepositsTxBody,
@@ -122,7 +117,7 @@ import Cardano.Ledger.MemoBytes (
   mkMemoized,
  )
 import Cardano.Ledger.SafeHash (HashAnnotated (..), SafeToHash)
-import Cardano.Ledger.TxIn (Fulfill, TxIn (..))
+import Cardano.Ledger.TxIn (TxIn (..))
 import Cardano.Ledger.Val (Val (..))
 import Control.Arrow (left)
 import Control.DeepSeq (NFData)
@@ -133,7 +128,7 @@ import Data.Sequence.Strict (StrictSeq)
 import Data.Set (Set)
 import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
-import Lens.Micro (Lens', to, (^.))
+import Lens.Micro (to, (^.))
 import NoThunks.Class (NoThunks)
 
 instance Memoized BabelTxBody where
@@ -159,41 +154,6 @@ data BabelTxBodyRaw era = BabelTxBodyRaw
   , bbtbrProposalProcedures :: !(OSet.OSet (ProposalProcedure era))
   , bbtbrCurrentTreasuryValue :: !(StrictMaybe Coin)
   , bbtbrTreasuryDonation :: !Coin
-  , -- Tx body fields for intents (babel-fees)
-
-    {- CIP-0118#tx-body-0
-
-      Here, we demonstrate the three (or two...I'll explain shortly) new fields required
-      for Babel fees.
-
-      The type of `Fulfill` is equivalent to that of an input, and the type of
-      a `Request` is equivalent to that of an ourput.
-
-      A `RequiredTx` is a transaction on which *this* transaction depends.
-
-      This has certain implications when it comes to cyclic dependencies. Because the
-      `TxBody` must be hashed for witnessing, if two transactions are dependent on
-      one-another with `RequiredTxs`, it becomes impossible to hash either of them.
-      This is why we might not want to put `RequiredTxs` in the `TxBody`: if we want
-      to allow these cyclic dependencies.
-
-      If we do, we'll need to move `RequiredTxs` up to the `Tx` level, like, for example:
-
-      data AlonzoTx era = AlonzoTx
-        { body :: !(TxBody era)
-        , wits :: !(TxWits era)
-        , isValid :: !IsValid
-        , auxiliaryData :: !(StrictMaybe (TxAuxData era))
-        , requiredTxs :: !(RequiredTxs era)
-        }
-        deriving (Generic)
-
-      This'll allow us to calculate a composite hash...TODO explain how they can do this
-
-      Jump to CIP-0118#ZONE-rule to continue... -}
-    bbtbrFulfills :: !(Set (Fulfill (EraCrypto era)))
-  , bbtbrRequests :: !(StrictSeq (Sized (TxOut era)))
-  , bbtbrRequiredTxs :: !(Set (TxIn (EraCrypto era)))
   }
   deriving (Generic, Typeable)
 
@@ -297,9 +257,6 @@ instance
         ofield
           (\x tx -> tx {bbtbrTreasuryDonation = fromSMaybe zero x})
           (D (decodePositiveCoin $ emptyFailure "Treasury Donation" "non-zero"))
-      bodyFields 23 = field (\x tx -> tx {bbtbrFulfills = x}) From
-      bodyFields 24 = field (\x tx -> tx {bbtbrRequests = x}) From
-      bodyFields 25 = field (\x tx -> tx {bbtbrRequiredTxs = x}) From
       bodyFields n = field (\_ t -> t) (Invalid n)
       requiredFields :: [(Word, String)]
       requiredFields =
@@ -354,7 +311,7 @@ deriving via
     ) =>
     DecCBOR (Annotator (BabelTxBody era))
 
-mkBabelTxBody :: BabelEraTxBody era => BabelTxBody era
+mkBabelTxBody :: ConwayEraTxBody era => BabelTxBody era
 mkBabelTxBody = mkMemoized basicBabelTxBodyRaw
 
 basicBabelTxBodyRaw :: BabelTxBodyRaw era
@@ -378,9 +335,6 @@ basicBabelTxBodyRaw =
     (VotingProcedures mempty)
     OSet.empty
     SNothing
-    mempty
-    mempty
-    mempty
     mempty
 
 data BabelTxBodyUpgradeError c
@@ -466,9 +420,6 @@ instance Crypto c => EraTxBody (BabelEra c) where
         , bbtbProposalProcedures = OSet.empty
         , bbtbVotingProcedures = VotingProcedures mempty
         , bbtbTreasuryDonation = Coin 0
-        , bbtbFulfills = mempty
-        , bbtbRequests = mempty
-        , bbtbRequiredTxs = mempty
         }
 
 instance Crypto c => AllegraEraTxBody (BabelEra c) where
@@ -538,17 +489,6 @@ instance Crypto c => BabbageEraTxBody (BabelEra c) where
   allSizedOutputsTxBodyF = allSizedOutputsBabbageTxBodyF
   {-# INLINE allSizedOutputsTxBodyF #-}
 
-instance Crypto c => ConwayEraScript (BabelEra c) where
-  mkVotingPurpose = BabelVoting
-
-  toVotingPurpose (BabelVoting i) = Just i
-  toVotingPurpose _ = Nothing
-
-  mkProposingPurpose = BabelProposing
-
-  toProposingPurpose (BabelProposing i) = Just i
-  toProposingPurpose _ = Nothing
-
 instance Crypto c => ConwayEraTxBody (BabelEra c) where
   {-# SPECIALIZE instance ConwayEraTxBody (BabelEra StandardCrypto) #-}
 
@@ -568,25 +508,12 @@ instance Crypto c => ConwayEraTxBody (BabelEra c) where
     lensMemoRawType bbtbrTreasuryDonation (\txb x -> txb {bbtbrTreasuryDonation = x})
   {-# INLINE treasuryDonationTxBodyL #-}
 
-instance (Crypto c, ConwayEraTxBody (BabelEra c)) => BabelEraTxBody (BabelEra c) where
-  fulfillsTxBodyL = lensMemoRawType bbtbrFulfills (\txb x -> txb {bbtbrFulfills = x})
-  {-# INLINE fulfillsTxBodyL #-}
-
-  requestsTxBodyL = 
-    lensMemoRawType
-          (fmap sizedValue . bbtbrRequests)
-          (\txb x -> txb {bbtbrRequests = mkSized (eraProtVerLow @(BabelEra c)) <$> x})
-  {-# INLINE requestsTxBodyL #-}
-  
-  requiredTxsTxBodyL = lensMemoRawType bbtbrRequiredTxs (\txb x -> txb {bbtbrRequiredTxs = x})
-  {-# INLINE requiredTxsTxBodyL #-}
-
 instance
   (EraPParams era, Eq (TxOut era), Eq (TxCert era)) =>
   EqRaw (BabelTxBody era)
 
 pattern BabelTxBody ::
-  BabelEraTxBody era =>
+  ConwayEraTxBody era =>
   Set (TxIn (EraCrypto era)) ->
   Set (TxIn (EraCrypto era)) ->
   Set (TxIn (EraCrypto era)) ->
@@ -606,9 +533,6 @@ pattern BabelTxBody ::
   OSet.OSet (ProposalProcedure era) ->
   StrictMaybe Coin ->
   Coin ->
-  Set (Fulfill (EraCrypto era)) ->
-  StrictSeq (Sized (TxOut era)) ->
-  Set (TxIn (EraCrypto era)) ->
   BabelTxBody era
 pattern BabelTxBody
   { bbtbSpendInputs
@@ -630,9 +554,6 @@ pattern BabelTxBody
   , bbtbProposalProcedures
   , bbtbCurrentTreasuryValue
   , bbtbTreasuryDonation
-  , bbtbFulfills
-  , bbtbRequests
-  , bbtbRequiredTxs
   } <-
   ( getMemoRawType ->
       BabelTxBodyRaw
@@ -655,9 +576,6 @@ pattern BabelTxBody
         , bbtbrProposalProcedures = bbtbProposalProcedures
         , bbtbrCurrentTreasuryValue = bbtbCurrentTreasuryValue
         , bbtbrTreasuryDonation = bbtbTreasuryDonation
-        , bbtbrFulfills = bbtbFulfills
-        , bbtbrRequests = bbtbRequests
-        , bbtbrRequiredTxs = bbtbRequiredTxs
         }
     )
   where
@@ -680,10 +598,7 @@ pattern BabelTxBody
       votingProcedures
       proposalProcedures
       currentTreasuryValue
-      treasuryDonation
-      fulfills
-      requests
-      requiredTxs =
+      treasuryDonation =
         mkMemoized $
           BabelTxBodyRaw
             inputsX
@@ -705,9 +620,6 @@ pattern BabelTxBody
             proposalProcedures
             currentTreasuryValue
             treasuryDonation
-            fulfills
-            requests
-            requiredTxs
 
 {-# COMPLETE BabelTxBody #-}
 
@@ -716,7 +628,10 @@ pattern BabelTxBody
 --------------------------------------------------------------------------------
 
 encodeTxBodyRaw ::
-  BabelEraTxBody era =>
+  ( ConwayEraTxBody era
+  , EncCBOR (OSet.OSet (ProposalProcedure era))
+  , EncCBOR (OSet.OSet (ConwayTxCert era))
+  ) =>
   BabelTxBodyRaw era ->
   Encode ('Closed 'Sparse) (BabelTxBodyRaw era)
 encodeTxBodyRaw BabelTxBodyRaw {..} =
@@ -745,29 +660,22 @@ encodeTxBodyRaw BabelTxBodyRaw {..} =
         !> Omit OSet.null (Key 20 (To bbtbrProposalProcedures))
         !> encodeKeyedStrictMaybe 21 bbtbrCurrentTreasuryValue
         !> Omit (== mempty) (Key 22 $ To bbtbrTreasuryDonation)
-        !> Omit (== mempty) (Key 23 (To bbtbrFulfills))
-        !> Omit (== mempty) (Key 24 (To bbtbrRequests))
-        !> Omit (== mempty) (Key 25 (To bbtbrRequiredTxs))
 
-instance BabelEraTxBody era => EncCBOR (BabelTxBodyRaw era) where
+instance
+  ( ConwayEraTxBody era
+  , EncCBOR (OSet.OSet (ProposalProcedure era))
+  , EncCBOR (OSet.OSet (ConwayTxCert era))
+  ) =>
+  EncCBOR (BabelTxBodyRaw era)
+  where
   encCBOR = encode . encodeTxBodyRaw
 
 -- | Encodes memoized bytes created upon construction.
 instance Era era => EncCBOR (BabelTxBody era)
 
-class
-  (ConwayEraTxBody era, BabelEraTxCert era, ConwayEraPParams era, BabelEraScript era) =>
-  BabelEraTxBody era
-  where
-  fulfillsTxBodyL :: Lens' (TxBody era) (Set (Fulfill (EraCrypto era)))
-
-  requestsTxBodyL :: Lens' (TxBody era) (StrictSeq (TxOut era))
-
-  requiredTxsTxBodyL :: Lens' (TxBody era) (Set (TxIn (EraCrypto era)))
-
 babelRedeemerPointer ::
   forall era.
-  BabelEraTxBody era =>
+  ConwayEraTxBody era =>
   TxBody era ->
   BabelPlutusPurpose AsItem era ->
   StrictMaybe (BabelPlutusPurpose AsIx era)
@@ -786,7 +694,7 @@ babelRedeemerPointer txBody = \case
     BabelProposing <$> indexOf proposalProcedure (txBody ^. proposalProceduresTxBodyL)
 
 babelRedeemerPointerInverse ::
-  BabelEraTxBody era =>
+  ConwayEraTxBody era =>
   TxBody era ->
   BabelPlutusPurpose AsIx era ->
   StrictMaybe (BabelPlutusPurpose AsIxItem era)

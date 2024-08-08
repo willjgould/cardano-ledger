@@ -16,13 +16,13 @@ import Test.Cardano.Ledger.Mary.ImpTest (MaryEraImp)
 import Test.Cardano.Ledger.Shelley.ImpTest (withImpState)
 
 spec ::
-  forall era ls.
-  ( MaryEraImp ls era
+  forall era.
+  ( MaryEraImp era
   , InjectRuleFailure "LEDGER" ShelleyUtxoPredFailure era
   , InjectRuleFailure "LEDGER" ShelleyUtxowPredFailure era
   ) =>
   Spec
 spec = do
   AllegraImp.spec @era
-  describe "MaryImpSpec" $ withImpState @ls @era $ do
-    Utxo.spec @ls @era
+  describe "MaryImpSpec" $ withImpState @era $ do
+    Utxo.spec @era

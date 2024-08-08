@@ -11,6 +11,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -57,11 +58,12 @@ import Cardano.Ledger.Babbage.Rules (
   BabbageUtxoPredFailure (..),
   expectScriptsToPass,
  )
+import Cardano.Ledger.Babel.Scripts ()
+
 import Cardano.Ledger.Babbage.Tx
 import Cardano.Ledger.Babel.Core
 import Cardano.Ledger.Babel.Era (BabelEra, BabelUTXOS)
-import Cardano.Ledger.Babel.FRxO (getBabelScriptsNeededFrxo, getScriptsProvidedFrxo, txfrxo)
-import Cardano.Ledger.Babel.LedgerState.Types (UTxOStateTemp (..), utxostDonationL)
+import Cardano.Ledger.Babel.TxBody (ConwayEraTxBody (..))
 import Cardano.Ledger.Babel.TxInfo ()
 import Cardano.Ledger.BaseTypes
 import Cardano.Ledger.Binary (
@@ -71,9 +73,11 @@ import Cardano.Ledger.Binary (
 import Cardano.Ledger.Binary.Coders
 import Cardano.Ledger.CertState (certsTotalDepositsTxBody, certsTotalRefundsTxBody)
 import Cardano.Ledger.Coin (Coin (Coin), DeltaCoin (..))
-import Cardano.Ledger.Conway.Core (ConwayEraPParams, ConwayEraTxBody (treasuryDonationTxBodyL))
-import Cardano.Ledger.Conway.Governance (ConwayGovState (..))
-import Cardano.Ledger.FRxO (FRxO (FRxO, unFRxO))
+import Cardano.Ledger.Conway.Core (ConwayEraPParams)
+import Cardano.Ledger.Conway.Governance (
+  ConwayGovState (..),
+ )
+import Cardano.Ledger.Conway.Scripts (ConwayEraScript)
 import Cardano.Ledger.Plutus (
   PlutusWithContext (..),
   ScriptFailure (..),
@@ -86,6 +90,7 @@ import Cardano.Ledger.Shelley.LedgerState (
   CertState,
   UTxOState (..),
   updateStakeDistribution,
+  utxosDonationL,
  )
 import Cardano.Ledger.Shelley.Rules (UtxoEnv (..))
 import Cardano.Ledger.Slot (EpochInfo)
@@ -132,12 +137,6 @@ data BabelUtxosEvent era
       (UTxO era)
       -- | UTxO created
       (UTxO era)
-  | -- | The FRxOs consumed and created by a signal tx
-    TxFRxODiff
-      -- | FRxO consumed
-      (FRxO era)
-      -- | FRxO created
-      (FRxO era)
   deriving (Generic)
 
 deriving instance (Era era, Eq (TxOut era)) => Eq (BabelUtxosEvent era)
@@ -182,8 +181,8 @@ alonzoToBabelUtxosEvent = \case
 
 instance
   ( EraTxCert era
-  , BabelEraScript era
   , EncCBOR (ContextError era)
+  , ConwayEraScript era
   ) =>
   EncCBOR (BabelUtxosPredFailure era)
   where
@@ -194,8 +193,8 @@ instance
 
 instance
   ( EraTxCert era
-  , BabelEraScript era
   , DecCBOR (ContextError era)
+  , ConwayEraScript era
   ) =>
   DecCBOR (BabelUtxosPredFailure era)
   where
@@ -206,41 +205,41 @@ instance
       dec n = Invalid n
 
 deriving stock instance
-  ( BabelEraScript era
-  , Show (TxCert era)
+  ( Show (TxCert era)
   , Show (ContextError era)
   , Show (UTxOState era)
+  , ConwayEraScript era
   ) =>
   Show (BabelUtxosPredFailure era)
 
 deriving stock instance
-  ( BabelEraScript era
-  , Eq (TxCert era)
+  ( Eq (TxCert era)
   , Eq (ContextError era)
   , Eq (UTxOState era)
+  , ConwayEraScript era
   ) =>
   Eq (BabelUtxosPredFailure era)
 
 instance
-  ( BabelEraScript era
-  , NoThunks (TxCert era)
+  ( NoThunks (TxCert era)
   , NoThunks (ContextError era)
   , NoThunks (UTxOState era)
+  , ConwayEraScript era
   ) =>
   NoThunks (BabelUtxosPredFailure era)
 
 instance
-  ( BabelEraScript era
-  , NFData (TxCert era)
+  ( NFData (TxCert era)
   , NFData (ContextError era)
   , NFData (UTxOState era)
+  , ConwayEraScript era
   ) =>
   NFData (BabelUtxosPredFailure era)
 
 instance
   ( AlonzoEraTx era
   , AlonzoEraUTxO era
-  , BabelEraTxBody era
+  , ConwayEraTxBody era
   , ConwayEraPParams era
   , EraGov era
   , EraPlutusContext era
@@ -256,7 +255,7 @@ instance
   where
   type BaseM (BabelUTXOS era) = Cardano.Ledger.BaseTypes.ShelleyBase
   type Environment (BabelUTXOS era) = UtxoEnv era
-  type State (BabelUTXOS era) = UTxOStateTemp era
+  type State (BabelUTXOS era) = UTxOState era
   type Signal (BabelUTXOS era) = AlonzoTx era
   type PredicateFailure (BabelUTXOS era) = BabelUtxosPredFailure era
   type Event (BabelUTXOS era) = BabelUtxosEvent era
@@ -266,7 +265,7 @@ instance
 instance
   ( AlonzoEraTx era
   , AlonzoEraUTxO era
-  , BabelEraTxBody era
+  , ConwayEraTxBody era
   , ConwayEraPParams era
   , EraGov era
   , EraPlutusContext era
@@ -284,27 +283,17 @@ instance
   wrapFailed = AlonzoInBabbageUtxoPredFailure . UtxosFailure
   wrapEvent = UtxosEvent
 
-{- CIP-0118#UTXOS-rule
-
-Everything interesting here is in the `updateUTxOState` function.
-
-However, it's not actually all that interesting; what we do with the FRxO is identical
-to what we already do with the UTxO.
-
-Note that I'm unsure if we actually need to do anything with `deletedFrxO`, and so
-the `txFrxODiffEvent` argument, and the event it uses, `TxFRxODiff`, might be redundant.
-I've included these elements to keep parity with the UTxO logic. -}
 utxosTransition ::
   forall era.
   ( AlonzoEraTx era
   , AlonzoEraUTxO era
-  , BabelEraTxBody era
+  , ConwayEraTxBody era
   , EraPlutusContext era
   , ScriptsNeeded era ~ AlonzoScriptsNeeded era
   , Signal (EraRule "UTXOS" era) ~ Tx era
   , STS (EraRule "UTXOS" era)
   , Environment (EraRule "UTXOS" era) ~ UtxoEnv era
-  , State (EraRule "UTXOS" era) ~ UTxOStateTemp era
+  , State (EraRule "UTXOS" era) ~ UTxOState era
   , InjectRuleFailure "UTXOS" AlonzoUtxosPredFailure era
   , BaseM (EraRule "UTXOS" era) ~ ShelleyBase
   , InjectRuleEvent "UTXOS" AlonzoUtxosEvent era
@@ -323,12 +312,12 @@ babelEvalScriptsTxValid ::
   forall era.
   ( AlonzoEraTx era
   , AlonzoEraUTxO era
-  , BabelEraTxBody era
+  , ConwayEraTxBody era
   , EraPlutusContext era
   , ScriptsNeeded era ~ AlonzoScriptsNeeded era
   , Signal (EraRule "UTXOS" era) ~ Tx era
   , STS (EraRule "UTXOS" era)
-  , State (EraRule "UTXOS" era) ~ UTxOStateTemp era
+  , State (EraRule "UTXOS" era) ~ UTxOState era
   , Environment (EraRule "UTXOS" era) ~ UtxoEnv era
   , InjectRuleFailure "UTXOS" AlonzoUtxosPredFailure era
   , BaseM (EraRule "UTXOS" era) ~ ShelleyBase
@@ -337,7 +326,7 @@ babelEvalScriptsTxValid ::
   ) =>
   TransitionRule (EraRule "UTXOS" era)
 babelEvalScriptsTxValid = do
-  TRC (UtxoEnv _ pp certState, utxos@(UTxOStateTemp utxo _frxo _ _ govState _ _), tx) <-
+  TRC (UtxoEnv _ pp certState, utxos@(UTxOState utxo _ _ govState _ _), tx) <-
     judgmentContext
   let txBody = tx ^. bodyTxL
 
@@ -354,9 +343,8 @@ babelEvalScriptsTxValid = do
       govState
       (tellEvent . injectEvent . TotalDeposits (hashAnnotated txBody))
       (\a b -> tellEvent . injectEvent $ TxUTxODiff a b)
-      (\a b -> tellEvent . injectEvent $ TxFRxODiff a b)
   pure $!
-    utxos' & utxostDonationL <>~ txBody ^. treasuryDonationTxBodyL
+    utxos' & utxosDonationL <>~ txBody ^. treasuryDonationTxBodyL
 
 -- | This monadic action captures the final stages of the UTXO(S) rule. In particular it
 -- applies all of the UTxO related aditions and removals, gathers all of the fees into the
@@ -364,55 +352,46 @@ babelEvalScriptsTxValid = do
 -- be called on the @deposit - refund@ change, which is normally used to emit the
 -- `TotalDeposits` event.
 updateUTxOState ::
-  (BabelEraTxBody era, Monad m) =>
+  (ConwayEraTxBody era, Monad m) =>
   PParams era ->
-  UTxOStateTemp era ->
+  UTxOState era ->
   TxBody era ->
   CertState era ->
   GovState era ->
   (Coin -> m ()) ->
   (UTxO era -> UTxO era -> m ()) ->
-  (FRxO era -> FRxO era -> m ()) ->
-  m (UTxOStateTemp era)
-updateUTxOState pp utxos txBody certState govState depositChangeEvent txUtxODiffEvent txFrxODiffEvent = do
-  let UTxOStateTemp
-        { utxostUtxo
-        , utxostFrxo
-        , utxostDeposited
-        , utxostFees
-        , utxostStakeDistr
-        , utxostDonation
+  m (UTxOState era)
+updateUTxOState pp utxos txBody certState govState depositChangeEvent txUtxODiffEvent = do
+  let UTxOState
+        { utxosUtxo
+        , utxosDeposited
+        , utxosFees
+        , utxosStakeDistr
+        , utxosDonation
         } = utxos
-      UTxO utxo = utxostUtxo
+      UTxO utxo = utxosUtxo
       !utxoAdd = txouts txBody -- These will be inserted into the UTxO
       {- utxoDel  = txins txb ◁ utxo -}
       !(utxoWithout, utxoDel) = extractKeys utxo (txBody ^. inputsTxBodyL)
       {- newUTxO = (txins txb ⋪ utxo) ∪ outs txb -}
       newUTxO = utxoWithout `Map.union` unUTxO utxoAdd
-      FRxO frxo = utxostFrxo
-      !frxoAdd = txfrxo txBody -- These will be inserted into the FRxO
       {- utxoDel  = txins txb ◁ utxo -}
-      !(frxoWithout, frxoDel) = extractKeys frxo (txBody ^. fulfillsTxBodyL)
       {- newUTxO = (txins txb ⋪ utxo) ∪ outs txb -}
-      newFRxO = frxoWithout `Map.union` unFRxO frxoAdd
       deletedUTxO = UTxO utxoDel
-      deletedFRxO = FRxO frxoDel
-      newIncStakeDistro = updateStakeDistribution pp utxostStakeDistr deletedUTxO utxoAdd
+      newIncStakeDistro = updateStakeDistribution pp utxosStakeDistr deletedUTxO utxoAdd
       totalRefunds = certsTotalRefundsTxBody pp certState txBody
       totalDeposits = certsTotalDepositsTxBody pp certState txBody
       depositChange = totalDeposits <-> totalRefunds
   depositChangeEvent depositChange
   txUtxODiffEvent deletedUTxO utxoAdd
-  txFrxODiffEvent deletedFRxO frxoAdd
   pure $!
-    UTxOStateTemp
-      { utxostUtxo = UTxO newUTxO
-      , utxostFrxo = FRxO newFRxO
-      , utxostDeposited = utxostDeposited <> depositChange
-      , utxostFees = utxostFees <> txBody ^. feeTxBodyL
-      , utxostGovState = govState
-      , utxostStakeDistr = newIncStakeDistro
-      , utxostDonation = utxostDonation
+    UTxOState
+      { utxosUtxo = UTxO newUTxO
+      , utxosDeposited = utxosDeposited <> depositChange
+      , utxosFees = utxosFees <> txBody ^. feeTxBodyL
+      , utxosGovState = govState
+      , utxosStakeDistr = newIncStakeDistro
+      , utxosDonation = utxosDonation
       }
 
 babelEvalScriptsTxInvalid ::
@@ -423,15 +402,16 @@ babelEvalScriptsTxInvalid ::
   , STS (EraRule "UTXOS" era)
   , Environment (EraRule "UTXOS" era) ~ UtxoEnv era
   , Signal (EraRule "UTXOS" era) ~ Tx era
-  , State (EraRule "UTXOS" era) ~ UTxOStateTemp era
+  , State (EraRule "UTXOS" era) ~ UTxOState era
   , BaseM (EraRule "UTXOS" era) ~ ShelleyBase
   , Event (EraRule "UTXOS" era) ~ BabelUtxosEvent era
   , PredicateFailure (EraRule "UTXOS" era) ~ BabelUtxosPredFailure era
-  , BabelEraTxBody era
+  , ScriptsNeeded era ~ AlonzoScriptsNeeded era
+  , ConwayEraTxBody era
   ) =>
   TransitionRule (EraRule "UTXOS" era)
 babelEvalScriptsTxInvalid = do
-  TRC (UtxoEnv _ pp _, us@(UTxOStateTemp utxo frxo _ fees _ _ _), tx) <- judgmentContext
+  TRC (UtxoEnv _ pp _, us@(UTxOState utxo _ fees _ _ _), tx) <- judgmentContext
   {- txb := txbody tx -}
   let txBody = tx ^. bodyTxL
   sysSt <- liftSTS $ asks systemStart
@@ -439,7 +419,7 @@ babelEvalScriptsTxInvalid = do
 
   () <- pure $! traceEvent invalidBegin ()
 
-  case collectPlutusScriptsWithContextFrxo ei sysSt pp tx utxo frxo of
+  case collectPlutusScriptsWithContextFrxo ei sysSt pp tx utxo of
     Right sLst ->
       {- sLst := collectTwoPhaseScriptInputs pp tx utxo -}
       {- isValid tx = evalScripts tx sLst = False -}
@@ -462,10 +442,10 @@ babelEvalScriptsTxInvalid = do
       DeltaCoin collateralFees = collAdaBalance txBody utxoDel -- NEW to Babbage
   pure $!
     us {- (collInputs txb ⋪ utxo) ∪ collouts tx -}
-      { utxostUtxo = UTxO (Map.union utxoKeep collouts) -- NEW to Babbage
+      { utxosUtxo = UTxO (Map.union utxoKeep collouts) -- NEW to Babbage
       {- fees + collateralFees -}
-      , utxostFees = fees <> Coin collateralFees -- NEW to Babbage
-      , utxostStakeDistr = updateStakeDistribution pp (utxostStakeDistr us) (UTxO utxoDel) (UTxO collouts)
+      , utxosFees = fees <> Coin collateralFees -- NEW to Babbage
+      , utxosStakeDistr = updateStakeDistribution pp (utxosStakeDistr us) (UTxO utxoDel) (UTxO collouts)
       }
 
 -- To Babel Fees implementers: This function is NOT in the right place.
@@ -475,16 +455,16 @@ collectPlutusScriptsWithContextFrxo ::
   ( AlonzoEraTxWits era
   , AlonzoEraUTxO era
   , EraPlutusContext era
-  , BabelEraTxBody era
+  , ConwayEraTxBody era
+  , ScriptsNeeded era ~ AlonzoScriptsNeeded era
   ) =>
   EpochInfo (Either Text) ->
   SystemStart ->
   PParams era ->
   Tx era ->
   UTxO era ->
-  FRxO era ->
   Either [CollectError era] [PlutusWithContext (EraCrypto era)]
-collectPlutusScriptsWithContextFrxo epochInfo sysStart pp tx utxo frxo =
+collectPlutusScriptsWithContextFrxo epochInfo sysStart pp tx utxo =
   -- TODO: remove this whole complicated check when we get into Conway. It is much simpler
   -- to fail on a CostModel lookup in the `apply` function (already implemented).
   let missingCostModels = Set.filter (`Map.notMember` costModels) usedLanguages
@@ -505,8 +485,8 @@ collectPlutusScriptsWithContextFrxo epochInfo sysStart pp tx utxo frxo =
     protVerMajor = pvMajor (pp ^. ppProtocolVersionL)
     costModels = costModelsValid $ pp ^. ppCostModelsL
 
-    ScriptsProvided scriptsProvided = getScriptsProvided utxo tx <> getScriptsProvidedFrxo frxo tx
-    AlonzoScriptsNeeded scriptsNeeded = getBabelScriptsNeededFrxo utxo frxo (tx ^. bodyTxL)
+    ScriptsProvided scriptsProvided = getScriptsProvided utxo tx
+    AlonzoScriptsNeeded scriptsNeeded = getScriptsNeeded utxo (tx ^. bodyTxL)
     neededPlutusScripts =
       mapMaybe (\(sp, sh) -> (,) (sh, sp) <$> lookupPlutusScript scriptsProvided sh) scriptsNeeded
     usedLanguages = Set.fromList $ map (plutusScriptLanguage . snd) neededPlutusScripts

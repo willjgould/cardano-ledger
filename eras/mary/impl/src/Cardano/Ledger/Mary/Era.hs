@@ -11,7 +11,6 @@ import Cardano.Ledger.Allegra (AllegraEra)
 import Cardano.Ledger.Allegra.Rules (AllegraUTXO, AllegraUTXOW)
 import Cardano.Ledger.Crypto (Crypto)
 import Cardano.Ledger.Mary.Value (MaryValue)
-import Cardano.Ledger.Shelley (EraFirstRule)
 import Cardano.Ledger.Shelley.Core
 import Cardano.Ledger.Shelley.Rules
 
@@ -23,8 +22,6 @@ instance Crypto c => Era (MaryEra c) where
   type ProtVerLow (MaryEra c) = 4
 
   eraName = "Mary"
-
-type instance EraFirstRule (MaryEra c) = "LEDGERS"
 
 --------------------------------------------------------------------------------
 -- Core instances

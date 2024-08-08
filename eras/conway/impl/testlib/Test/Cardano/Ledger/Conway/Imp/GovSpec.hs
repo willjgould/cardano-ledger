@@ -1190,8 +1190,8 @@ proposalWithRewardAccount action = do
 
 -- | Tests the first hardfork in the Conway era where the PrevGovActionID is SNothing
 firstHardForkFollows ::
-  forall era ls.
-  ( ShelleyEraImp ls era
+  forall era.
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   ) =>
   (ProtVer -> ProtVer) ->
@@ -1202,8 +1202,8 @@ firstHardForkFollows computeNewFromOld = do
 
 -- | Negative (deliberatey failing) first hardfork in the Conway era where the PrevGovActionID is SNothing
 firstHardForkCantFollow ::
-  forall era ls.
-  ( ShelleyEraImp ls era
+  forall era.
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   , InjectRuleFailure "LEDGER" ConwayGovPredFailure era
   ) =>
@@ -1226,8 +1226,8 @@ firstHardForkCantFollow = do
 
 -- | Tests a second hardfork in the Conway era where the PrevGovActionID is SJust
 secondHardForkFollows ::
-  forall era ls.
-  ( ShelleyEraImp ls era
+  forall era.
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   ) =>
   (ProtVer -> ProtVer) ->
@@ -1241,8 +1241,8 @@ secondHardForkFollows computeNewFromOld = do
 
 -- | Negative (deliberatey failing) first hardfork in the Conway era where the PrevGovActionID is SJust
 secondHardForkCantFollow ::
-  forall era ls.
-  ( ShelleyEraImp ls era
+  forall era.
+  ( ShelleyEraImp era
   , ConwayEraTxBody era
   , InjectRuleFailure "LEDGER" ConwayGovPredFailure era
   ) =>

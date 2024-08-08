@@ -37,7 +37,6 @@ import Cardano.Ledger.Conway.Rules (
   ConwayUtxowPredFailure (..),
  )
 import Cardano.Ledger.Plutus.Language (SLanguage (..), hashPlutusScript)
-import Cardano.Ledger.Shelley.LedgerState (LedgerState)
 import Cardano.Ledger.TxIn (TxIn (..))
 import Control.Monad ((<=<))
 import qualified Data.Sequence.Strict as SSeq
@@ -93,7 +92,7 @@ spec = describe "Regression" $ do
           , "49848004800504d9010281d8799f182aff0581840000d8799f182aff820000f4f6"
           ]
   describe "ImpTest" $
-    withImpState @LedgerState @Conway $
+    withImpState @Conway $
       it "InsufficientCollateral is not encoded with negative coin #4198" $ do
         let lockedVal = inject $ Coin 100
         (_, collateralAddress) <- freshKeyAddr
@@ -104,7 +103,7 @@ spec = describe "Regression" $ do
           lockScriptAddress = mkScriptAddr scriptHash skp
         (_, collateralReturnAddr) <- freshKeyAddr
         lockedTx <-
-          submitTxAnn @LedgerState @Conway "Script locked tx" $
+          submitTxAnn @Conway "Script locked tx" $
             mkBasicTx mkBasicTxBody
               & bodyTxL
               . outputsTxBodyL

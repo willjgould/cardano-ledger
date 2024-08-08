@@ -157,7 +157,7 @@ treasuryWithdrawalsSpec =
       impAnn "submit in individual proposals in the same epoch" $ do
         traverse_
           ( \w -> do
-              gaId <- submitTreasuryWithdrawals @LedgerState @era [w]
+              gaId <- submitTreasuryWithdrawals @era [w]
               submitYesVote_ (DRepVoter drepC) gaId
               submitYesVote_ (CommitteeVoter committeeC) gaId
           )

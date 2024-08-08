@@ -49,8 +49,8 @@ import Test.Cardano.Ledger.Core.Utils (txInAt)
 import Test.Cardano.Ledger.Plutus.Examples (guessTheNumber3)
 
 submitProducingTx ::
-  forall era ls.
-  ShelleyEraImp ls era =>
+  forall era.
+  ShelleyEraImp era =>
   ImpTestM era (TxIn (EraCrypto era))
 submitProducingTx =
   fmap (txInAt (0 :: Int)) . submitTxAnn "Sumbit a transaction with a script output" $
@@ -64,8 +64,8 @@ submitProducingTx =
         )
 
 spec ::
-  forall era ls.
-  ( ShelleyEraImp ls era
+  forall era.
+  ( ShelleyEraImp era
   , AlonzoEraTx era
   ) =>
   SpecWith (ImpTestState era)

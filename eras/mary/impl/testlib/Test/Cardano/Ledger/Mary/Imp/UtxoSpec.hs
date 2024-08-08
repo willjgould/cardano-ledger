@@ -24,9 +24,9 @@ import Test.Cardano.Ledger.Imp.Common
 import Test.Cardano.Ledger.Mary.ImpTest
 
 mintBasicToken ::
-  forall era ls.
+  forall era.
   ( HasCallStack
-  , MaryEraImp ls era
+  , MaryEraImp era
   ) =>
   ImpTestM era (Tx era)
 mintBasicToken = do
@@ -48,7 +48,7 @@ mintBasicToken = do
 
 spec ::
   ( HasCallStack
-  , MaryEraImp ls era
+  , MaryEraImp era
   , InjectRuleFailure "LEDGER" ShelleyUtxoPredFailure era
   ) =>
   SpecWith (ImpTestState era)
