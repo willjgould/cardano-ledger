@@ -471,7 +471,7 @@ zoneSpec = describe "ZONE" $ do
           & bodyTxL
           . outputsTxBodyL
           .~ SSeq.fromList
-            [ ffTx addr1 439402031 mempty
+            [ ffTx addr1 438935624 mempty
             , ffTx addr2 479671256 mempty
             , ffTx addrCollatReq1 27108750 mempty
             , ffTx addrCollatReq2 54012900 mempty
@@ -852,7 +852,7 @@ makeTestTransactions = do
         & bodyTxL
         . outputsTxBodyL
         .~ SSeq.fromList
-          [ ffTx addr1 419522051 mempty
+          [ ffTx addr1 419211113 mempty
           , ffTx addr2 499550972 mempty
           , ffTx addrCollatReq 27108750 mempty
           , ffTx addrCollatFf 54012900 mempty

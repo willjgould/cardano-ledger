@@ -39,16 +39,19 @@ import qualified Cardano.Ledger.Alonzo.Rules as Alonzo (
   AlonzoUtxoPredFailure (..),
   validateOutputTooBigUTxO,
   validateOutsideForecast,
+  validateScriptsNotPaidUTxO,
   validateTooManyCollateralInputs,
   validateWrongNetworkInTxBody,
  )
 import Cardano.Ledger.Alonzo.Tx (AlonzoTx (..))
 import Cardano.Ledger.Alonzo.TxWits (nullRedeemers)
 import Cardano.Ledger.Babbage (BabbageEra)
+import Cardano.Ledger.Babbage.Collateral (collAdaBalance)
 import Cardano.Ledger.Babbage.Rules (
   BabbageUtxoPredFailure,
+  validateCollateralContainsNonADA,
+  validateCollateralEqBalance,
   validateOutputTooSmallUTxO,
-  validateTotalCollateral,
  )
 import qualified Cardano.Ledger.Babbage.Rules as Babbage (
   BabbageUtxoPredFailure (..),
@@ -87,8 +90,9 @@ import Cardano.Ledger.CertState (
   lookupDepositVState,
   psStakePoolParamsL,
  )
-import Cardano.Ledger.Coin (Coin, DeltaCoin)
+import Cardano.Ledger.Coin (Coin (unCoin), DeltaCoin, rationalToCoinViaCeiling, toDeltaCoin)
 import Cardano.Ledger.Conway.TxBody (ConwayEraTxBody)
+import Cardano.Ledger.Core (PParams (..))
 import Cardano.Ledger.Credential (Credential)
 import Cardano.Ledger.Crypto (Crypto)
 import Cardano.Ledger.Keys (KeyHash, KeyRole (..))
@@ -110,6 +114,7 @@ import qualified Cardano.Ledger.Shelley.Rules as Shelley (
 import Cardano.Ledger.TxIn (Fulfill, TxIn (..))
 import Cardano.Ledger.UTxO (EraUTxO (..), UTxO (..), balance, txInsFilter)
 import Cardano.Ledger.Val ((<+>))
+import qualified Cardano.Ledger.Val as Val
 import Control.DeepSeq (NFData)
 import Control.Monad (unless, when)
 import Control.Monad.Trans.Reader (asks)
@@ -125,6 +130,7 @@ import Control.State.Transition.Extended (
   trans,
   validate,
  )
+import Data.Bifunctor (first)
 import Data.Coerce (coerce)
 import Data.Foldable (Foldable (..), sequenceA_)
 import Data.List.NonEmpty (NonEmpty)
@@ -138,9 +144,10 @@ import Data.Word (Word64)
 import Debug.Trace (trace)
 import GHC.Generics (Generic)
 import GHC.Natural (Natural)
+import GHC.Real ((%))
 import Lens.Micro ((^.))
 import NoThunks.Class (InspectHeapNamed (..), NoThunks (..))
-import Validation (failureUnless)
+import Validation (failureIf, failureUnless)
 
 -- ======================================================
 
@@ -312,6 +319,15 @@ instance
 --------------------------------------------------------------------------------
 -- BabelUTXO STS
 --------------------------------------------------------------------------------
+
+-- TODO WG MIDGROUND
+-- UTXO
+-- The UTXO rule is updated by :
+
+-- removing the produced = consumed check (this is moved to the ZONE rule)
+-- changing the minfee calculation to no longer include + pp .b term
+-- in feesOK, the collateral must now include + pp .b, so that
+-- (coin bal * 100) ≥ᵇ (txfee * pp .collateralPercentage) + pp .b
 
 {- CIP-0118#UTXO-rule
 
@@ -683,46 +699,51 @@ feesOK pp tx u@(UTxO utxo) =
             validateTotalCollateral pp txBody utxoCollateral
         ]
 
-getMinFeeTxUtxoFrxo ::
-  ( EraTx era
-  , ConwayEraTxBody era
+validateTotalCollateral ::
+  forall era rule.
+  ( BabbageEraTxBody era
+  , InjectRuleFailure rule AlonzoUtxoPredFailure era
+  , InjectRuleFailure rule BabbageUtxoPredFailure era
   ) =>
   PParams era ->
-  Tx era ->
-  UTxO era ->
-  Coin
-getMinFeeTxUtxoFrxo pparams tx utxo =
-  getMinFeeTx pparams tx refScriptsSize
+  TxBody era ->
+  Map.Map (TxIn (EraCrypto era)) (TxOut era) ->
+  Test (EraRuleFailure rule era)
+validateTotalCollateral pp txBody utxoCollateral =
+  sequenceA_
+    [ -- Part 3: (∀(a,_,_) ∈ range (collateral txb ◁ utxo), a ∈ Addrvkey)
+      fromAlonzoValidation $ Alonzo.validateScriptsNotPaidUTxO utxoCollateral
+    , -- Part 4: isAdaOnly balance
+      fromAlonzoValidation $ validateCollateralContainsNonADA txBody utxoCollateral
+    , -- Part 5: balance ≥ ⌈txfee txb ∗ (collateralPercent pp) / 100⌉
+      fromAlonzoValidation $ validateInsufficientCollateral pp txBody bal
+    , -- Part 6: (txcoll tx ≠ ◇) ⇒ balance = txcoll tx
+      first (fmap injectFailure) $ validateCollateralEqBalance bal (txBody ^. totalCollateralTxBodyL)
+    , -- Part 7: collInputs tx ≠ ∅
+      fromAlonzoValidation $ failureIf (null utxoCollateral) (Alonzo.NoCollateralInputs @era)
+    ]
   where
-    ins =
-      (tx ^. bodyTxL . referenceInputsTxBodyL)
-        `Set.union` (tx ^. bodyTxL . inputsTxBodyL)
-    refScripts = getReferenceScriptsNonDistinct utxo ins
-    refScriptsSize = Monoid.getSum $ foldMap (Monoid.Sum . originalBytesSize . snd) refScripts
+    bal = collAdaBalance txBody utxoCollateral
+    fromAlonzoValidation = first (fmap (injectFailure @rule))
 
--- | For eras before Conway, VState is expected to have an empty Map for vsDReps, and so deposit summed up is zero.
-consumed ::
-  (Value era ~ MaryValue (EraCrypto era), ConwayEraTxBody era) =>
+-- (coin bal * 100) ≥ᵇ (txfee * pp .collateralPercentage) + pp .b
+validateInsufficientCollateral ::
+  ( EraTxBody era
+  , AlonzoEraPParams era
+  ) =>
   PParams era ->
-  CertState era ->
-  UTxO era ->
   TxBody era ->
-  Value era
-consumed pp certState =
-  getConsumedMaryValue
-    pp
-    (lookupDepositDState $ certState ^. certDStateL)
-    (lookupDepositVState $ certState ^. certVStateL)
-
--- | Compute the lovelace which are created by the transaction
--- For eras before Conway, VState is expected to have an empty Map for vsDReps, and so deposit summed up is zero.
-produced ::
-  (Value era ~ MaryValue (EraCrypto era), ConwayEraTxBody era) =>
-  PParams era ->
-  CertState era ->
-  TxBody era ->
-  Value era
-produced pp certState = babelProducedValueFrxo pp (flip Map.member $ certState ^. certPStateL . psStakePoolParamsL)
+  DeltaCoin ->
+  Test (AlonzoUtxoPredFailure era)
+validateInsufficientCollateral pp txBody bal =
+  failureUnless
+    (Val.scale (100 :: Int) bal >= toDeltaCoin (Val.scale collPerc txfee <+> pp ^. ppMinFeeBL))
+    $ Alonzo.InsufficientCollateral bal
+    $ rationalToCoinViaCeiling
+    $ ((fromIntegral collPerc * unCoin txfee) + unCoin (pp ^. ppMinFeeBL)) % 100
+  where
+    txfee = txBody ^. feeTxBodyL -- Coin supplied to pay fees
+    collPerc = pp ^. ppCollateralPercentageL
 
 babelProducedValueFrxo ::
   (ConwayEraTxBody era, Value era ~ MaryValue (EraCrypto era)) =>

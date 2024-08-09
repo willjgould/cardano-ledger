@@ -25,6 +25,7 @@ where
 
 import Cardano.Crypto.Hash ()
 import qualified Cardano.Crypto.Hash as Hash hiding (Hash)
+import Cardano.Ledger.Allegra.Core (PParams)
 import Cardano.Ledger.Allegra.Tx (validateTimelock)
 import Cardano.Ledger.Alonzo.Tx (
   IsValid (IsValid),
@@ -34,6 +35,7 @@ import Cardano.Ledger.Alonzo.Tx (
   isValidAlonzoTxL,
   mkBasicAlonzoTx,
   sizeAlonzoTxF,
+  totExUnits,
   witsAlonzoTxL,
  )
 import Cardano.Ledger.Babbage.Tx as BabbageTxReExport (
@@ -44,7 +46,7 @@ import Cardano.Ledger.Babel.Era (BabelEra)
 import Cardano.Ledger.Babel.TxAuxData ()
 import Cardano.Ledger.Babel.TxBody ()
 import Cardano.Ledger.Babel.TxWits ()
-import Cardano.Ledger.BaseTypes (strictMaybeToMaybe)
+import Cardano.Ledger.BaseTypes (BoundedRational (unboundRational), strictMaybeToMaybe)
 import Cardano.Ledger.Binary (
   Annotator,
   DecCBOR (decCBOR),
@@ -60,13 +62,16 @@ import Cardano.Ledger.Binary (
   withSlice,
  )
 import Cardano.Ledger.Binary.Group (EncCBORGroup (listLen))
-import Cardano.Ledger.Conway.Tx (getConwayMinFeeTx)
+import Cardano.Ledger.Coin (Coin (Coin))
+import Cardano.Ledger.Conway.Core (AlonzoEraTxWits, ConwayEraPParams, ppPricesL)
+import Cardano.Ledger.Conway.PParams (ppMinFeeRefScriptCostPerByteL)
 import Cardano.Ledger.Core (
   Era,
-  EraTx (auxDataTxL),
+  EraTx (..),
   Tx,
   bodyTxL,
   eraProtVerLow,
+  ppMinFeeAL,
   upgradeTxAuxData,
   upgradeTxBody,
   upgradeTxWits,
@@ -75,8 +80,10 @@ import Cardano.Ledger.Core (
 import qualified Cardano.Ledger.Core as Core
 import Cardano.Ledger.Crypto
 import Cardano.Ledger.Keys (Hash)
+import Cardano.Ledger.Plutus.ExUnits (txscriptfee)
 import Cardano.Ledger.SafeHash (SafeToHash (..))
 import Cardano.Ledger.Shelley.BlockChain (constructMetadata)
+import Cardano.Ledger.Val (Val (..))
 import Control.Monad (unless, (<=<))
 import Data.ByteString (ByteString)
 import Data.ByteString.Builder (shortByteString, toLazyByteString)
@@ -122,7 +129,7 @@ instance Crypto c => Core.EraTx (BabelEra c) where
   validateNativeScript = validateTimelock
   {-# INLINE validateNativeScript #-}
 
-  getMinFeeTx = getConwayMinFeeTx
+  getMinFeeTx = getBabelMinFeeTx
 
   upgradeTx (AlonzoTx b w valid aux) =
     AlonzoTx
@@ -130,6 +137,28 @@ instance Crypto c => Core.EraTx (BabelEra c) where
       <*> pure (upgradeTxWits w)
       <*> pure valid
       <*> pure (fmap upgradeTxAuxData aux)
+
+getBabelMinFeeTx ::
+  ( EraTx era
+  , AlonzoEraTxWits era
+  , ConwayEraPParams era
+  ) =>
+  PParams era ->
+  Tx era ->
+  Int ->
+  Coin
+getBabelMinFeeTx pp tx refScriptsSize =
+  ( tx
+      ^. sizeTxF
+      <×> pp
+      ^. ppMinFeeAL
+      <+> txscriptfee (pp ^. ppPricesL) allExunits
+  )
+    <+> refScriptsFee
+  where
+    allExunits = totExUnits tx
+    refScriptCostPerByte = unboundRational (pp ^. ppMinFeeRefScriptCostPerByteL)
+    refScriptsFee = Coin (floor (fromIntegral @Int @Rational refScriptsSize * refScriptCostPerByte))
 
 instance Crypto c => AlonzoEraTx (BabelEra c) where
   {-# SPECIALIZE instance AlonzoEraTx (BabelEra StandardCrypto) #-}
