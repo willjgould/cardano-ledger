@@ -2761,7 +2761,7 @@ withImpStateModified f =
     addRootTxOut = do
       (rootKeyHash, _) <- freshKeyPair
       let rootAddr = Addr Testnet (KeyHashObj rootKeyHash) StakeRefNull
-          rootTxOut = mkBasicTxOut rootAddr $ MaryValue rootCoin smallValue
+          rootTxOut = mkBasicTxOut rootAddr $ MaryValue rootCoin totalSupply
       impNESL
         . nesEsL
         . esLStateL
@@ -2782,10 +2782,25 @@ plum = AssetName "plum"
 amethyst :: AssetName
 amethyst = AssetName "amethyst"
 
+totalSupply :: MultiAsset StandardCrypto
+totalSupply =
+  MultiAsset $
+    Map.singleton purplePolicyId (Map.fromList [(amethyst, 100)])
+
 smallValue :: MultiAsset StandardCrypto
 smallValue =
   MultiAsset $
-    Map.singleton purplePolicyId (Map.fromList [(plum, 13), (amethyst, 2)])
+    Map.singleton purplePolicyId (Map.fromList [(amethyst, 10)])
+
+mediumValue :: MultiAsset StandardCrypto
+mediumValue =
+  MultiAsset $
+    Map.singleton purplePolicyId (Map.fromList [(amethyst, 20)])
+
+largeValue :: MultiAsset StandardCrypto
+largeValue =
+  MultiAsset $
+    Map.singleton purplePolicyId (Map.fromList [(amethyst, 80)])
 
 testKeyHash :: Crypto c => KeyHash kd c
 testKeyHash = mkKeyHash (-1)
