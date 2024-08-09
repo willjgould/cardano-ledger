@@ -24,6 +24,7 @@ module Cardano.Ledger.Babbage.Rules.Utxo (
   validateTotalCollateral,
   validateCollateralEqBalance,
   validateOutputTooSmallUTxO,
+  validateCollateralContainsNonADA,
 ) where
 
 import Cardano.Ledger.Allegra.Rules (AllegraUtxoPredFailure, shelleyToAllegraUtxoPredFailure)
