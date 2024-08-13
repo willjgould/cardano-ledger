@@ -119,6 +119,7 @@ import Control.DeepSeq (NFData)
 import Control.Monad (unless)
 import Control.Monad.RWS (asks)
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
+import Data.Map (member)
 import qualified Data.Map as Map
 import Data.MapExtras (extractKeys)
 import Debug.Trace (trace, traceEvent)
@@ -359,15 +360,23 @@ zoneTransition =
             lsV = init ltx
             tx = last ltx -- TODO WG use safe head
             collateralPct = collateralPercentage pParams
-            utxo = utxoState ^. utxosUtxoL
+            utxo@(UTxO u) = utxoState ^. utxosUtxoL
 
         {- ((totSizeZone ltx) ≤ᵇ (Γ .LEnv.pparams .PParams.maxTxSize)) ≡ true -}
         runTestOnSignal $
           validateMaxTxSizeUTxO pParams ltx
         -- ((coin (balance  (utxo ∣ tx .body .collateral)) * 100) ≥ᵇ sumCol ltx (Γ .LEnv.pparams .PParams.collateralPercentage)) ≡ true
 
+        -- TODO WG MIDGROUND ADD THESE CHECKS
+        -- the sum total of the fees of all transactions in the zone is at least the sum of the required fees for all transactions in the zone (note that there are changes to fee and collateral requirements, discussed below)
         if all chkIsValid txs -- ZONE-V
           then do
+            -- ∪_{tx ∈ txs} txins(tx) ⊆ dom utxo
+            runTestOnSignal $
+              failureUnless
+                (all (`member` u) $ Foldable.toList =<< ltx ^.. folded . bodyTxL . inputsTxBodyL)
+                DependsOnZoneOutput
+
             {- totExunits tx ≤ maxTxExUnits pp -}
             runTestOnSignal $ validateExUnitsTooBigUTxO pParams ltx
 

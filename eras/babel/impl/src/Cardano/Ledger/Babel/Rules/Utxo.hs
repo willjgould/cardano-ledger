@@ -252,6 +252,7 @@ data BabelUtxoPredFailure era
   | CollInUtxoInvalidFailure
   | BadFulfillsFRxO
       !(Set (Fulfill (EraCrypto era)))
+  | DependsOnZoneOutput
   deriving (Generic)
 
 type instance EraRuleFailure "UTXO" (BabelEra c) = BabelUtxoPredFailure (BabelEra c)
@@ -554,6 +555,7 @@ instance
       CollInUtxoValidFailure -> Sum CollInUtxoValidFailure 28
       CollInUtxoInvalidFailure -> Sum CollInUtxoInvalidFailure 29
       BadFulfillsFRxO fs -> Sum (BadFulfillsFRxO @era) 30 !> To fs
+      DependsOnZoneOutput -> Sum DependsOnZoneOutput 31
 
 instance
   ( Era era
@@ -595,6 +597,7 @@ instance
     28 -> SumD CollInUtxoValidFailure
     29 -> SumD CollInUtxoInvalidFailure
     30 -> SumD BadFulfillsFRxO <! From
+    31 -> SumD DependsOnZoneOutput
     n -> Invalid n
 
 -- =====================================================
