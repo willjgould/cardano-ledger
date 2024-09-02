@@ -50,7 +50,6 @@ import qualified Data.ListMap as LM
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy (..))
-import qualified Data.Sequence.Strict as StrictSeq
 import Lens.Micro ((^.))
 import Lens.Micro.Extras (view)
 import Numeric.Natural (Natural)
@@ -86,8 +85,7 @@ import Test.QuickCheck (Gen)
 -- The CHAIN STS at the root of the STS allows for generating blocks of transactions
 -- with meaningful delegation certificates, protocol and application updates, withdrawals etc.
 instance
-  ( TxStructure era ~ StrictSeq.StrictSeq
-  , EraGen era
+  ( EraGen era
   , EraSegWits era
   , Mock (EraCrypto era)
   , ApplyBlock era

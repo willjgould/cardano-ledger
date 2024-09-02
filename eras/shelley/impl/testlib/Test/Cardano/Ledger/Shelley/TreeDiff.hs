@@ -93,22 +93,6 @@ instance
   ) =>
   ToExpr (ShelleyTxBody era)
 
--- Babel Fees
-
--- instance
---   ( ToExpr (TxOut era)
---   , ToExpr (TxCert era)
---   , ToExpr (Update era)
---   ) =>
---   ToExpr (ShelleyRequiredTxRaw era)
-
--- instance
---   ( ToExpr (TxOut era)
---   , ToExpr (TxCert era)
---   , ToExpr (Update era)
---   ) =>
---   ToExpr (ShelleyRequiredTx era)
-
 -- PoolRank
 instance ToExpr Likelihood
 

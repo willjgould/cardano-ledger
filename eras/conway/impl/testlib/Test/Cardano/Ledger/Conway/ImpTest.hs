@@ -1,9 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedLists #-}
@@ -217,12 +215,8 @@ conwayModifyPParams ::
   ImpTestM era ()
 conwayModifyPParams f = modifyNES $ \nes ->
   nes
-    & nesEsL
-    . curPParamsEpochStateL
-    %~ f
-    & newEpochStateGovStateL
-    . drepPulsingStateGovStateL
-    %~ modifyDRepPulser
+    & nesEsL . curPParamsEpochStateL %~ f
+    & newEpochStateGovStateL . drepPulsingStateGovStateL %~ modifyDRepPulser
   where
     modifyDRepPulser pulser =
       case finishDRepPulser pulser of
@@ -240,12 +234,7 @@ withImpStateWithProtVer ::
   Spec
 withImpStateWithProtVer ver = do
   withImpStateModified $
-    impNESL
-      . nesEsL
-      . esLStateL
-      . lsUTxOStateL
-      . (utxosGovStateL @era)
-      . cgsCurPParamsL
+    impNESL . nesEsL . esLStateL . lsUTxOStateL . (utxosGovStateL @era) . cgsCurPParamsL
       %~ ( \(PParams pp) ->
             PParams (pp {cppProtocolVersion = ProtVer ver 0})
          )
@@ -270,49 +259,25 @@ instance
       initConwayNES committee constitution nes =
         let newNes =
               (initAlonzoImpNES nes)
-                & nesEsL
-                . curPParamsEpochStateL
-                . ppDRepActivityL
-                .~ EpochInterval 100
-                & nesEsL
-                . curPParamsEpochStateL
-                . ppGovActionLifetimeL
-                .~ EpochInterval 30
-                & nesEsL
-                . curPParamsEpochStateL
-                . ppGovActionDepositL
-                .~ Coin 123
-                & nesEsL
-                . curPParamsEpochStateL
-                . ppCommitteeMaxTermLengthL
-                .~ EpochInterval 20
-                & nesEsL
-                . curPParamsEpochStateL
-                . ppCommitteeMinSizeL
-                .~ 1
-                & nesEsL
-                . curPParamsEpochStateL
-                . ppDRepVotingThresholdsL
-                %~ ( \dvt ->
-                      dvt
-                        { dvtCommitteeNormal = 1 %! 1
-                        , dvtCommitteeNoConfidence = 1 %! 2
-                        , dvtUpdateToConstitution = 1 %! 2
-                        }
-                   )
-                & nesEsL
-                . epochStateGovStateL
-                . committeeGovStateL
-                .~ SJust committee
-                & nesEsL
-                . epochStateGovStateL
-                . constitutionGovStateL
-                .~ constitution
+                & nesEsL . curPParamsEpochStateL . ppDRepActivityL .~ EpochInterval 100
+                & nesEsL . curPParamsEpochStateL . ppGovActionLifetimeL .~ EpochInterval 30
+                & nesEsL . curPParamsEpochStateL . ppGovActionDepositL .~ Coin 123
+                & nesEsL . curPParamsEpochStateL . ppCommitteeMaxTermLengthL .~ EpochInterval 20
+                & nesEsL . curPParamsEpochStateL . ppCommitteeMinSizeL .~ 1
+                & nesEsL . curPParamsEpochStateL . ppDRepVotingThresholdsL
+                  %~ ( \dvt ->
+                        dvt
+                          { dvtCommitteeNormal = 1 %! 1
+                          , dvtCommitteeNoConfidence = 1 %! 2
+                          , dvtUpdateToConstitution = 1 %! 2
+                          }
+                     )
+                & nesEsL . epochStateGovStateL . committeeGovStateL .~ SJust committee
+                & nesEsL . epochStateGovStateL . constitutionGovStateL .~ constitution
             epochState = newNes ^. nesEsL
             ratifyState =
               def
-                & rsEnactStateL
-                .~ mkEnactState (epochState ^. epochStateGovStateL)
+                & rsEnactStateL .~ mkEnactState (epochState ^. epochStateGovStateL)
          in newNes & nesEsL .~ setCompleteDRepPulsingState def ratifyState epochState
 
   impSatisfyNativeScript = impAllegraSatisfyNativeScript
@@ -335,7 +300,6 @@ instance ShelleyEraImp (ConwayEra c) => AlonzoEraImp (ConwayEra c) where
     plutusTestScripts SPlutusV1
       <> plutusTestScripts SPlutusV2
       <> plutusTestScripts SPlutusV3
-      <> plutusTestScripts SPlutusV4
 
 class
   ( AlonzoEraImp era
@@ -361,9 +325,7 @@ instance
   ConwayEraImp (ConwayEra c)
 
 registerInitialCommittee ::
-  ( HasCallStack
-  , ConwayEraImp era
-  ) =>
+  (HasCallStack, ConwayEraImp era) =>
   ImpTestM era (NonEmpty (Credential 'HotCommitteeRole (EraCrypto era)))
 registerInitialCommittee = do
   committeeMembers <- Set.toList <$> getCommitteeMembers
@@ -384,14 +346,13 @@ registerDRep = do
   khDRep <- freshKeyHash
   submitTxAnn_ "Register DRep" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . certsTxBodyL
-      .~ SSeq.singleton
-        ( RegDRepTxCert
-            (KeyHashObj khDRep)
-            zero
-            SNothing
-        )
+      & bodyTxL . certsTxBodyL
+        .~ SSeq.singleton
+          ( RegDRepTxCert
+              (KeyHashObj khDRep)
+              zero
+              SNothing
+          )
   dreps <- getsNES @era $ nesEsL . esLStateL . lsCertStateL . certVStateL . vsDRepsL
   dreps `shouldSatisfy` Map.member (KeyHashObj khDRep)
   pure khDRep
@@ -415,14 +376,13 @@ setupDRepWithoutStake = do
   deposit <- getsNES $ nesEsL . curPParamsEpochStateL . ppKeyDepositL
   submitTxAnn_ "Delegate to DRep" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . certsTxBodyL
-      .~ SSeq.fromList
-        [ mkRegDepositDelegTxCert @era
-            (KeyHashObj delegatorKH)
-            (DelegVote (DRepCredential $ KeyHashObj drepKH))
-            deposit
-        ]
+      & bodyTxL . certsTxBodyL
+        .~ SSeq.fromList
+          [ mkRegDepositDelegTxCert @era
+              (KeyHashObj delegatorKH)
+              (DelegVote (DRepCredential $ KeyHashObj drepKH))
+              deposit
+          ]
   pure (drepKH, delegatorKH)
 
 -- | Registers a new DRep and delegates the specified amount of ADA to it.
@@ -444,21 +404,19 @@ setupSingleDRep stake = do
   (_, spendingKP) <- freshKeyPair
   submitTxAnn_ "Delegate to DRep" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . outputsTxBodyL
-      .~ SSeq.singleton
-        ( mkBasicTxOut
-            (mkAddr (spendingKP, delegatorKP))
-            (inject $ Coin stake)
-        )
-      & bodyTxL
-      . certsTxBodyL
-      .~ SSeq.fromList
-        [ mkRegDepositDelegTxCert @era
-            (KeyHashObj delegatorKH)
-            (DelegVote (DRepCredential $ KeyHashObj drepKH))
-            zero
-        ]
+      & bodyTxL . outputsTxBodyL
+        .~ SSeq.singleton
+          ( mkBasicTxOut
+              (mkAddr (spendingKP, delegatorKP))
+              (inject $ Coin stake)
+          )
+      & bodyTxL . certsTxBodyL
+        .~ SSeq.fromList
+          [ mkRegDepositDelegTxCert @era
+              (KeyHashObj delegatorKH)
+              (DelegVote (DRepCredential $ KeyHashObj drepKH))
+              zero
+          ]
   pure (KeyHashObj drepKH, KeyHashObj delegatorKH, spendingKP)
 
 getsPParams :: EraGov era => Lens' (PParams era) a -> ImpTestM era a
@@ -470,9 +428,7 @@ getsPParams f = getsNES $ nesEsL . curPParamsEpochStateL . f
 -- in Conway. The Shelley version of this function would have to separately
 -- register the staking credential and then delegate it.
 setupPoolWithStake ::
-  ( ShelleyEraImp era
-  , ConwayEraTxCert era
-  ) =>
+  (ShelleyEraImp era, ConwayEraTxCert era) =>
   Coin ->
   ImpTestM
     era
@@ -491,20 +447,17 @@ setupPoolWithStake delegCoin = do
   pp <- getsNES $ nesEsL . curPParamsEpochStateL
   submitTxAnn_ "Delegate to stake pool" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . certsTxBodyL
-      .~ SSeq.fromList
-        [ RegDepositDelegTxCert
-            credDelegatorStaking
-            (DelegStake khPool)
-            (pp ^. ppKeyDepositL)
-        ]
+      & bodyTxL . certsTxBodyL
+        .~ SSeq.fromList
+          [ RegDepositDelegTxCert
+              credDelegatorStaking
+              (DelegStake khPool)
+              (pp ^. ppKeyDepositL)
+          ]
   pure (khPool, credDelegatorPayment, credDelegatorStaking)
 
 setupPoolWithoutStake ::
-  ( ShelleyEraImp era
-  , ConwayEraTxCert era
-  ) =>
+  (ShelleyEraImp era, ConwayEraTxCert era) =>
   ImpTestM
     era
     ( KeyHash 'StakePool (EraCrypto era)
@@ -516,14 +469,13 @@ setupPoolWithoutStake = do
   deposit <- getsNES $ nesEsL . curPParamsEpochStateL . ppKeyDepositL
   submitTxAnn_ "Delegate to stake pool" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . certsTxBodyL
-      .~ SSeq.fromList
-        [ RegDepositDelegTxCert
-            credDelegatorStaking
-            (DelegStake khPool)
-            deposit
-        ]
+      & bodyTxL . certsTxBodyL
+        .~ SSeq.fromList
+          [ RegDepositDelegTxCert
+              credDelegatorStaking
+              (DelegStake khPool)
+              deposit
+          ]
   pure (khPool, credDelegatorStaking)
 
 -- | Submits a transaction with a Vote for the given governance action as
@@ -593,45 +545,34 @@ trySubmitVote vote voter gaId =
   fmap (fmap txIdTx) $
     trySubmitTx $
       mkBasicTx mkBasicTxBody
-        & bodyTxL
-        . votingProceduresTxBodyL
-        .~ VotingProcedures
-          ( Map.singleton
-              voter
-              ( Map.singleton
-                  gaId
-                  ( VotingProcedure
-                      { vProcVote = vote
-                      , vProcAnchor = SNothing
-                      }
-                  )
-              )
-          )
+        & bodyTxL . votingProceduresTxBodyL
+          .~ VotingProcedures
+            ( Map.singleton
+                voter
+                ( Map.singleton
+                    gaId
+                    ( VotingProcedure
+                        { vProcVote = vote
+                        , vProcAnchor = SNothing
+                        }
+                    )
+                )
+            )
 
 submitProposal_ ::
-  ( ShelleyEraImp era
-  , ConwayEraTxBody era
-  , HasCallStack
-  ) =>
+  (ShelleyEraImp era, ConwayEraTxBody era, HasCallStack) =>
   ProposalProcedure era ->
   ImpTestM era ()
 submitProposal_ = void . submitProposal
 
 submitProposal ::
-  ( ShelleyEraImp era
-  , ConwayEraTxBody era
-  , HasCallStack
-  ) =>
+  (ShelleyEraImp era, ConwayEraTxBody era, HasCallStack) =>
   ProposalProcedure era ->
   ImpTestM era (GovActionId (EraCrypto era))
 submitProposal proposal = trySubmitProposal proposal >>= expectRightExpr
 
 submitProposals ::
-  ( ShelleyEraImp era
-  , ConwayEraGov era
-  , ConwayEraTxBody era
-  , HasCallStack
-  ) =>
+  (ShelleyEraImp era, ConwayEraGov era, ConwayEraTxBody era, HasCallStack) =>
   NE.NonEmpty (ProposalProcedure era) ->
   ImpTestM era (NE.NonEmpty (GovActionId (EraCrypto era)))
 submitProposals proposals = do
@@ -687,9 +628,7 @@ trySubmitProposals ::
 trySubmitProposals proposals = do
   trySubmitTx $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . proposalProceduresTxBodyL
-      .~ GHC.fromList (toList proposals)
+      & bodyTxL . proposalProceduresTxBodyL .~ GHC.fromList (toList proposals)
 
 submitFailingProposal ::
   ( ShelleyEraImp era
@@ -740,9 +679,7 @@ submitAndExpireProposalToMakeReward expectedReward stakingC = do
 
 -- | Submits a transaction that proposes the given governance action
 trySubmitGovActions ::
-  ( ShelleyEraImp era
-  , ConwayEraTxBody era
-  ) =>
+  (ShelleyEraImp era, ConwayEraTxBody era) =>
   NE.NonEmpty (GovAction era) ->
   ImpTestM era (Either (NonEmpty (PredicateFailure (EraRule "LEDGER" era))) (Tx era))
 trySubmitGovActions gas = do
@@ -1181,34 +1118,28 @@ logRatificationChecks gaId = do
 -- | Submits a transaction that registers a hot key for the given cold key.
 -- Returns the hot key hash.
 registerCommitteeHotKey ::
-  ( ShelleyEraImp era
-  , ConwayEraTxCert era
-  ) =>
+  (ShelleyEraImp era, ConwayEraTxCert era) =>
   Credential 'ColdCommitteeRole (EraCrypto era) ->
   ImpTestM era (Credential 'HotCommitteeRole (EraCrypto era))
 registerCommitteeHotKey coldKey = do
   hotKey <- KeyHashObj <$> freshKeyHash
   submitTxAnn_ "Registering Committee Hot key" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . certsTxBodyL
-      .~ SSeq.singleton (AuthCommitteeHotKeyTxCert coldKey hotKey)
+      & bodyTxL . certsTxBodyL
+        .~ SSeq.singleton (AuthCommitteeHotKeyTxCert coldKey hotKey)
   pure hotKey
 
 -- | Submits a transaction that resigns the cold key
 resignCommitteeColdKey ::
-  ( ShelleyEraImp era
-  , ConwayEraTxCert era
-  ) =>
+  (ShelleyEraImp era, ConwayEraTxCert era) =>
   Credential 'ColdCommitteeRole (EraCrypto era) ->
   StrictMaybe (Anchor (EraCrypto era)) ->
   ImpTestM era ()
 resignCommitteeColdKey coldKey anchor = do
   submitTxAnn_ "Resigning Committee Cold key" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . certsTxBodyL
-      .~ SSeq.singleton (ResignCommitteeColdTxCert coldKey anchor)
+      & bodyTxL . certsTxBodyL
+        .~ SSeq.singleton (ResignCommitteeColdTxCert coldKey anchor)
 
 electCommittee ::
   forall era.
@@ -1316,9 +1247,7 @@ proposalsShowDebug ps showRoots =
       <> ["----- Proposals End -----"]
 
 submitConstitutionGovAction ::
-  ( ShelleyEraImp era
-  , ConwayEraTxBody era
-  ) =>
+  (ShelleyEraImp era, ConwayEraTxBody era) =>
   StrictMaybe (GovActionId (EraCrypto era)) ->
   ImpTestM era (GovActionId (EraCrypto era))
 submitConstitutionGovAction gid = do

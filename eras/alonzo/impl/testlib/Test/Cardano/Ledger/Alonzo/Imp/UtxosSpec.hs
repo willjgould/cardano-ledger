@@ -4,9 +4,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# OPTIONS_GHC -Wno-unused-binds #-}
-{-# OPTIONS_GHC -Wno-unused-imports #-}
 
 module Test.Cardano.Ledger.Alonzo.Imp.UtxosSpec (spec) where
 
@@ -48,20 +45,16 @@ import Test.Cardano.Ledger.Common
 import Test.Cardano.Ledger.Core.Utils (txInAt)
 import Test.Cardano.Ledger.Plutus.Examples (guessTheNumber3)
 
-submitProducingTx ::
-  forall era.
-  ShelleyEraImp era =>
-  ImpTestM era (TxIn (EraCrypto era))
+submitProducingTx :: forall era. ShelleyEraImp era => ImpTestM era (TxIn (EraCrypto era))
 submitProducingTx =
   fmap (txInAt (0 :: Int)) . submitTxAnn "Sumbit a transaction with a script output" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . outputsTxBodyL
-      .~ SSeq.singleton
-        ( mkBasicTxOut
-            (Addr Testnet (ScriptHashObj $ hashPlutusScript (guessTheNumber3 SPlutusV1)) StakeRefNull)
-            (inject (Coin 100))
-        )
+      & bodyTxL . outputsTxBodyL
+        .~ SSeq.singleton
+          ( mkBasicTxOut
+              (Addr Testnet (ScriptHashObj $ hashPlutusScript (guessTheNumber3 SPlutusV1)) StakeRefNull)
+              (inject (Coin 100))
+          )
 
 spec ::
   forall era.
@@ -69,32 +62,25 @@ spec ::
   , AlonzoEraTx era
   ) =>
   SpecWith (ImpTestState era)
-spec = describe "UTXOS" $ pure ()
-
--- do
---   it "Plutus script transactions are fixed up" $ do
---     txIn0 <- submitProducingTx
---     submitTxAnn_ "Submit a transaction that consumes the script output" $
---       mkBasicTx mkBasicTxBody
---         & bodyTxL
---         . inputsTxBodyL
---         .~ Set.singleton txIn0
---   it "Invalid plutus script fails in phase 2" $ do
---     txIn0 <- submitProducingTx
---     exUnits <- getsNES $ nesEsL . curPParamsEpochStateL . ppMaxTxExUnitsL
---     impAnn "Submitting consuming transaction" $
---       submitTx_
---         ( mkBasicTx mkBasicTxBody
---             & bodyTxL
---             . inputsTxBodyL
---             .~ Set.singleton txIn0
---             & isValidTxL
---             .~ IsValid False
---             & witsTxL
---             . rdmrsTxWitsL
---             .~ Redeemers
---               ( Map.singleton
---                   (mkSpendingPurpose $ AsIx 0)
---                   (Data $ P.I 32, exUnits)
---               )
---         )
+spec = describe "UTXOS" $ do
+  it "Plutus script transactions are fixed up" $ do
+    txIn0 <- submitProducingTx
+    submitTxAnn_ "Submit a transaction that consumes the script output" $
+      mkBasicTx mkBasicTxBody
+        & bodyTxL . inputsTxBodyL
+          .~ Set.singleton txIn0
+  it "Invalid plutus script fails in phase 2" $ do
+    txIn0 <- submitProducingTx
+    exUnits <- getsNES $ nesEsL . curPParamsEpochStateL . ppMaxTxExUnitsL
+    impAnn "Submitting consuming transaction" $
+      submitTx_
+        ( mkBasicTx mkBasicTxBody
+            & bodyTxL . inputsTxBodyL .~ Set.singleton txIn0
+            & isValidTxL .~ IsValid False
+            & witsTxL . rdmrsTxWitsL
+              .~ Redeemers
+                ( Map.singleton
+                    (mkSpendingPurpose $ AsIx 0)
+                    (Data $ P.I 32, exUnits)
+                )
+        )

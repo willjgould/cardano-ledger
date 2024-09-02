@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE TypeFamilies #-}
 
 module Test.Cardano.Ledger.Shelley.Imp.UtxowSpec (spec) where
 

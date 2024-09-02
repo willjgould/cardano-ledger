@@ -99,7 +99,6 @@ instance InjectRuleFailure "LEDGERS" ShelleyDelegPredFailure (ShelleyEra c) wher
 
 newtype ShelleyLedgersEvent era
   = LedgerEvent (Event (EraRule "LEDGER" era))
-  deriving (Generic)
 
 deriving stock instance
   ( Era era
@@ -134,40 +133,6 @@ instance
   DecCBOR (ShelleyLedgersPredFailure era)
   where
   decCBOR = LedgerFailure <$> decCBOR
-
-deriving stock instance
-  ( Era era
-  , Show (Event (EraRule "LEDGER" era))
-  ) =>
-  Show (ShelleyLedgersEvent era)
-
-deriving stock instance
-  ( Era era
-  , Eq (Event (EraRule "LEDGER" era))
-  ) =>
-  Eq (ShelleyLedgersEvent era)
-
-instance
-  ( Era era
-  , NoThunks (Event (EraRule "LEDGER" era))
-  ) =>
-  NoThunks (ShelleyLedgersEvent era)
-
-instance
-  ( Era era
-  , EncCBOR (Event (EraRule "LEDGER" era))
-  ) =>
-  EncCBOR (ShelleyLedgersEvent era)
-  where
-  encCBOR (LedgerEvent e) = encCBOR e
-
-instance
-  ( Era era
-  , DecCBOR (Event (EraRule "LEDGER" era))
-  ) =>
-  DecCBOR (ShelleyLedgersEvent era)
-  where
-  decCBOR = LedgerEvent <$> decCBOR
 
 instance
   ( Era era

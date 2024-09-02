@@ -93,6 +93,10 @@ instance
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
 
 instance
   ( EraPParams era
@@ -131,6 +135,19 @@ instance Crypto c => Arbitrary (BabelGovCert c) where
       , BabelAuthCommitteeHotKey <$> arbitrary <*> arbitrary
       , BabelResignCommitteeColdKey <$> arbitrary <*> arbitrary
       ]
+
+instance
+  ( EraTxOut era
+  , Arbitrary (Value era)
+  , Arbitrary (TxOut era)
+  , Arbitrary (PredicateFailure (EraRule "UTXO" era))
+  , Arbitrary (PlutusPurpose AsItem era)
+  , Arbitrary (PlutusPurpose AsIx era)
+  , Arbitrary (TxCert era)
+  ) =>
+  Arbitrary (BabelSwapsPredFailure era)
+  where
+  arbitrary = genericArbitraryU
 
 instance
   ( EraTxOut era
@@ -436,6 +453,7 @@ instance
 
 instance
   ( Era era
+  , Arbitrary (PredicateFailure (EraRule "SWAPS" era))
   , Arbitrary (PredicateFailure (EraRule "UTXOW" era))
   , Arbitrary (PredicateFailure (EraRule "CERTS" era))
   , Arbitrary (PredicateFailure (EraRule "GOV" era))

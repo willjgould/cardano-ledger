@@ -105,15 +105,13 @@ spec = describe "Regression" $ do
         lockedTx <-
           submitTxAnn @Conway "Script locked tx" $
             mkBasicTx mkBasicTxBody
-              & bodyTxL
-              . outputsTxBodyL
-              .~ SSeq.fromList
-                [ mkBasicTxOut lockScriptAddress lockedVal
-                , mkBasicTxOut collateralAddress (inject $ Coin 1)
-                ]
-              & bodyTxL
-              . collateralReturnTxBodyL
-              .~ SJust (mkBasicTxOut collateralReturnAddr . inject $ Coin 1)
+              & bodyTxL . outputsTxBodyL
+                .~ SSeq.fromList
+                  [ mkBasicTxOut lockScriptAddress lockedVal
+                  , mkBasicTxOut collateralAddress (inject $ Coin 1)
+                  ]
+              & bodyTxL . collateralReturnTxBodyL
+                .~ SJust (mkBasicTxOut collateralReturnAddr . inject $ Coin 1)
         let
           modifyRootCoin = coinTxOutL .~ Coin 989482376
           modifyRootTxOut (x SSeq.:<| SSeq.Empty) =
@@ -124,26 +122,17 @@ spec = describe "Regression" $ do
           breakCollaterals tx =
             pure $
               tx
-                & bodyTxL
-                . collateralReturnTxBodyL
-                .~ SJust (mkBasicTxOut collateralReturnAddr . inject $ Coin 1_000_000_000)
-                & bodyTxL
-                . feeTxBodyL
-                .~ Coin 178349
-                & bodyTxL
-                . outputsTxBodyL
-                %~ modifyRootTxOut
-                & witsTxL
-                . addrTxWitsL
-                .~ mempty
+                & bodyTxL . collateralReturnTxBodyL
+                  .~ SJust (mkBasicTxOut collateralReturnAddr . inject $ Coin 1_000_000_000)
+                & bodyTxL . feeTxBodyL .~ Coin 178349
+                & bodyTxL . outputsTxBodyL %~ modifyRootTxOut
+                & witsTxL . addrTxWitsL .~ mempty
         res <-
           impAnn "Consume the script locked output" $
             withPostFixup (updateAddrTxWits <=< breakCollaterals) $ do
               trySubmitTx @Conway $
                 mkBasicTx mkBasicTxBody
-                  & bodyTxL
-                  . inputsTxBodyL
-                  .~ Set.singleton (TxIn (txIdTx lockedTx) $ TxIx 0)
+                  & bodyTxL . inputsTxBodyL .~ Set.singleton (TxIn (txIdTx lockedTx) $ TxIx 0)
         pFailure <- impAnn "Expecting failure" $ expectLeftDeepExpr res
         let
           hasInsufficientCollateral

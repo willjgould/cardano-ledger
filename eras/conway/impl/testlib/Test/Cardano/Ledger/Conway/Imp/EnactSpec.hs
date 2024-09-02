@@ -130,9 +130,7 @@ treasuryWithdrawalsSpec =
       impAnn "Submit a treasury donation that can cover the withdrawals" $ do
         let tx =
               mkBasicTx mkBasicTxBody
-                & bodyTxL
-                . treasuryDonationTxBodyL
-                .~ (sumRequested <-> initialTreasury)
+                & bodyTxL . treasuryDonationTxBodyL .~ (sumRequested <-> initialTreasury)
         submitTx_ tx
       passNEpochs 2
       getTreasury `shouldReturn` zero
@@ -200,14 +198,8 @@ hardForkInitiationSpec =
     (committeeMember :| _) <- registerInitialCommittee
     modifyPParams $ \pp ->
       pp
-        & ppDRepVotingThresholdsL
-        . dvtHardForkInitiationL
-        .~ 2
-        %! 3
-        & ppPoolVotingThresholdsL
-        . pvtHardForkInitiationL
-        .~ 2
-        %! 3
+        & ppDRepVotingThresholdsL . dvtHardForkInitiationL .~ 2 %! 3
+        & ppPoolVotingThresholdsL . pvtHardForkInitiationL .~ 2 %! 3
     _ <- setupPoolWithStake $ Coin 22_000_000
     (stakePoolId1, _, _) <- setupPoolWithStake $ Coin 22_000_000
     (stakePoolId2, _, _) <- setupPoolWithStake $ Coin 22_000_000
@@ -235,13 +227,8 @@ hardForkInitiationNoDRepsSpec =
     (committeeMember :| _) <- registerInitialCommittee
     modifyPParams $ \pp ->
       pp
-        & ppDRepVotingThresholdsL
-        . dvtHardForkInitiationL
-        .~ def
-        & ppPoolVotingThresholdsL
-        . pvtHardForkInitiationL
-        .~ 2
-        %! 3
+        & ppDRepVotingThresholdsL . dvtHardForkInitiationL .~ def
+        & ppPoolVotingThresholdsL . pvtHardForkInitiationL .~ 2 %! 3
     _ <- setupPoolWithStake $ Coin 22_000_000
     (stakePoolId1, _, _) <- setupPoolWithStake $ Coin 22_000_000
     (stakePoolId2, _, _) <- setupPoolWithStake $ Coin 22_000_000
@@ -262,16 +249,9 @@ noConfidenceSpec =
   it "NoConfidence" $ do
     modifyPParams $ \pp ->
       pp
-        & ppDRepVotingThresholdsL
-        . dvtCommitteeNoConfidenceL
-        .~ 1
-        %! 2
-        & ppPoolVotingThresholdsL
-        . pvtCommitteeNoConfidenceL
-        .~ 1
-        %! 2
-        & ppCommitteeMaxTermLengthL
-        .~ EpochInterval 200
+        & ppDRepVotingThresholdsL . dvtCommitteeNoConfidenceL .~ 1 %! 2
+        & ppPoolVotingThresholdsL . pvtCommitteeNoConfidenceL .~ 1 %! 2
+        & ppCommitteeMaxTermLengthL .~ EpochInterval 200
     let
       getCommittee =
         getsNES $
@@ -424,13 +404,8 @@ actionPrioritySpec =
     it "proposals of same priority are enacted in order of submission" $ do
       modifyPParams $ \pp ->
         pp
-          & ppDRepVotingThresholdsL
-          . dvtPPEconomicGroupL
-          .~ def
-          & ppPoolVotingThresholdsL
-          . pvtPPSecurityGroupL
-          .~ 1
-          %! 1
+          & ppDRepVotingThresholdsL . dvtPPEconomicGroupL .~ def
+          & ppPoolVotingThresholdsL . pvtPPSecurityGroupL .~ 1 %! 1
 
       (committeeC :| _) <- registerInitialCommittee
       (spoC, _, _) <- setupPoolWithStake $ Coin 42_000_000
@@ -462,13 +437,8 @@ actionPrioritySpec =
     it "only the first action of a transaction gets enacted" $ do
       modifyPParams $ \pp ->
         pp
-          & ppDRepVotingThresholdsL
-          . dvtPPEconomicGroupL
-          .~ def
-          & ppPoolVotingThresholdsL
-          . pvtPPSecurityGroupL
-          .~ 1
-          %! 1
+          & ppDRepVotingThresholdsL . dvtPPEconomicGroupL .~ def
+          & ppPoolVotingThresholdsL . pvtPPSecurityGroupL .~ 1 %! 1
       (committeeC :| _) <- registerInitialCommittee
       (spoC, _, _) <- setupPoolWithStake $ Coin 42_000_000
       gaids <-

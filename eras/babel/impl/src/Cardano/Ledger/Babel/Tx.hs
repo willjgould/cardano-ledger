@@ -1,9 +1,12 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -16,62 +19,66 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# OPTIONS_GHC -Wno-unused-local-binds #-}
 
-module Cardano.Ledger.Babel.Tx (
-  module BabbageTxReExport,
-  BabelTxZones,
-  pattern BabelTxZones,
-)
-where
+module Cardano.Ledger.Babel.Tx where
 
-import Cardano.Crypto.Hash ()
-import qualified Cardano.Crypto.Hash as Hash hiding (Hash)
-import Cardano.Ledger.Allegra.Core (PParams)
+import Cardano.Ledger.Address (Addr)
+import Cardano.Ledger.Allegra.Core (Era (..), EraTxSwaps (..), PParams)
 import Cardano.Ledger.Allegra.Tx (validateTimelock)
 import Cardano.Ledger.Alonzo.Tx (
-  IsValid (IsValid),
-  alonzoSegwitTx,
-  auxDataAlonzoTxL,
-  bodyAlonzoTxL,
-  isValidAlonzoTxL,
-  mkBasicAlonzoTx,
-  sizeAlonzoTxF,
+  AlonzoEraTx (isValidTxL),
+  AlonzoTx (AlonzoTx),
+  IsValid (..),
+  alonzoEqTxRaw,
   totExUnits,
-  witsAlonzoTxL,
- )
-import Cardano.Ledger.Babbage.Tx as BabbageTxReExport (
-  AlonzoEraTx (..),
-  AlonzoTx (..),
  )
 import Cardano.Ledger.Babel.Era (BabelEra)
+import Cardano.Ledger.Babel.Swap ()
 import Cardano.Ledger.Babel.TxAuxData ()
-import Cardano.Ledger.Babel.TxBody ()
-import Cardano.Ledger.Babel.TxWits ()
-import Cardano.Ledger.BaseTypes (BoundedRational (unboundRational), strictMaybeToMaybe)
-import Cardano.Ledger.Binary (
-  Annotator,
-  DecCBOR (decCBOR),
-  EncCBOR (encCBOR, encodedSizeExpr),
-  EncCBORGroup (encodedGroupSizeExpr),
-  encCBOR,
-  encCBORGroup,
-  encodeFoldableEncoder,
-  encodeFoldableMapEncoder,
-  encodePreEncoded,
-  listLenBound,
-  serialize,
-  withSlice,
+import Cardano.Ledger.Babel.TxBody (
+  BabelEraTxBody (..),
+  BabelTxBodyRaw (bbtbrCorInputs, bbtbrRequiredTxs, bbtbrSpendOuts, bbtbrSwaps),
  )
-import Cardano.Ledger.Binary.Group (EncCBORGroup (listLen))
+import Cardano.Ledger.Babel.TxWits ()
+import Cardano.Ledger.BaseTypes (
+  BoundedRational (unboundRational),
+  StrictMaybe (..),
+  strictMaybeToMaybe,
+ )
+import Cardano.Ledger.Binary (
+  Annotator (..),
+  DecCBOR (..),
+  EncCBOR (..),
+  Encoding,
+  ToCBOR,
+  encodeFoldableEncoder,
+  encodeListLen,
+  encodeNullMaybe,
+  serialize,
+ )
+import Cardano.Ledger.Binary.Coders (Decode (..), Encode (..), decode, encode, (!>), (<*!))
+import Cardano.Ledger.Binary.Decoding (
+  decodeMapTraverse,
+  decodeNullMaybe,
+ )
+import Cardano.Ledger.Binary.Plain (ToCBOR (..))
 import Cardano.Ledger.Coin (Coin (Coin))
 import Cardano.Ledger.Conway.Core (AlonzoEraTxWits, ConwayEraPParams, ppPricesL)
 import Cardano.Ledger.Conway.PParams (ppMinFeeRefScriptCostPerByteL)
 import Cardano.Ledger.Core (
-  Era,
+  EraScript,
   EraTx (..),
+  EraTxAuxData (..),
+  EraTxBody (..),
+  EraTxWits (..),
+  Script,
+  ScriptHash,
   Tx,
   bodyTxL,
   eraProtVerLow,
+  hashScript,
+  isNativeScript,
   ppMinFeeAL,
+  toEraCBOR,
   upgradeTxAuxData,
   upgradeTxBody,
   upgradeTxWits,
@@ -79,51 +86,354 @@ import Cardano.Ledger.Core (
  )
 import qualified Cardano.Ledger.Core as Core
 import Cardano.Ledger.Crypto
-import Cardano.Ledger.Keys (Hash)
+import Cardano.Ledger.MemoBytes (EqRaw (..), lensMemoRawType)
 import Cardano.Ledger.Plutus.ExUnits (txscriptfee)
-import Cardano.Ledger.SafeHash (SafeToHash (..))
-import Cardano.Ledger.Shelley.BlockChain (constructMetadata)
+import qualified Cardano.Ledger.Shelley.UTxO as Shelley
+import Cardano.Ledger.TxIn (TxId)
 import Cardano.Ledger.Val (Val (..))
-import Control.Monad (unless, (<=<))
-import Data.ByteString (ByteString)
-import Data.ByteString.Builder (shortByteString, toLazyByteString)
-import qualified Data.ByteString.Lazy as BSL
-import Data.Coerce (coerce)
-import Data.Data (Proxy)
-import qualified Data.Foldable as Foldable
-import Data.Functor.Compose (Compose (Compose, getCompose))
+import Control.DeepSeq (NFData)
+import qualified Data.ByteString.Lazy as LBS
+import Data.Data (Typeable)
+import Data.Functor.Classes (liftEq2)
 import qualified Data.Map as Map
-import Data.Proxy (Proxy (..))
-import qualified Data.Sequence as Seq
-import Data.Sequence.Strict (StrictSeq)
-import qualified Data.Sequence.Strict as StrictSeq
-import Data.Typeable (Typeable)
+import qualified Data.Map.Strict as Strict
+import Data.Maybe.Strict (maybeToStrictMaybe)
 import GHC.Generics (Generic)
 import Lens.Micro hiding (set)
-import Lens.Micro.Extras (view)
-import NoThunks.Class (AllowThunksIn (AllowThunksIn), NoThunks)
+import NoThunks.Class (NoThunks)
 
-instance Crypto c => Core.EraTx (BabelEra c) where
+data BabelTx era = BabelTx
+  { btxBody :: !(TxBody era)
+  , btxWits :: !(TxWits era)
+  , btxIsValid :: !IsValid
+  , btxAuxiliaryData :: !(StrictMaybe (TxAuxData era))
+  , -- NEW
+    btxIsTopLevel :: !Bool
+  , -- NEW
+    btxSwaps :: !(TxSwaps era)
+  , -- NEW
+    btxRequiredTxBodies :: !(Strict.Map (TxId (EraCrypto era)) (TxBody era))
+  }
+  deriving (Generic)
+
+instance (Tx era ~ BabelTx era, BabelEraTx era, EqRaw (TxSwaps era)) => EqRaw (BabelTx era) where
+  eqRaw = babelEqTxRaw
+
+class
+  (EraTx era, AlonzoEraTx era, AlonzoEraTxWits era, BabelEraTxBody era) =>
+  BabelEraTx era
+  where
+  isTopLevelTxL :: Lens' (Tx era) Bool
+  subTxBodiesTxL :: Lens' (Tx era) (TxSwaps era)
+  requiredTxBodiesTxL :: Lens' (Tx era) (Strict.Map (TxId (EraCrypto era)) (TxBody era))
+
+instance Crypto c => BabelEraTxBody (BabelEra c) where
+  {-# SPECIALIZE instance BabelEraTxBody (BabelEra StandardCrypto) #-}
+  swapsTxBodyL = lensMemoRawType bbtbrSwaps (\txBodyRaw swaps_ -> txBodyRaw {bbtbrSwaps = swaps_})
+  spendOutsTxBodyL = lensMemoRawType bbtbrSpendOuts (\txBodyRaw spendOuts_ -> txBodyRaw {bbtbrSpendOuts = spendOuts_})
+
+  requiredTxsTxBodyL =
+    lensMemoRawType
+      bbtbrRequiredTxs
+      (\txBodyRaw requiredTxs_ -> txBodyRaw {bbtbrRequiredTxs = requiredTxs_})
+  corInputsTxBodyL = lensMemoRawType bbtbrCorInputs (\txBodyRaw corInputs_ -> txBodyRaw {bbtbrCorInputs = corInputs_})
+
+instance (Crypto c, BabelEraTxBody (BabelEra c)) => BabelEraTx (BabelEra c) where
+  {-# SPECIALIZE instance BabelEraTx (BabelEra StandardCrypto) #-}
+
+  isTopLevelTxL = isTopLevelBabelTxL
+  {-# INLINE isTopLevelTxL #-}
+
+  subTxBodiesTxL = subTxBodiesBabelTxL
+  {-# INLINE subTxBodiesTxL #-}
+
+  requiredTxBodiesTxL = requiredTxBodiesBabelTxL
+  {-# INLINE requiredTxBodiesTxL #-}
+
+mkBasicBabelTx :: (Monoid (TxWits era), Monoid (TxSwaps era)) => TxBody era -> BabelTx era
+mkBasicBabelTx txBody = BabelTx txBody mempty (IsValid True) SNothing True mempty mempty
+
+isTopLevelBabelTxL :: Lens' (BabelTx era) Bool
+isTopLevelBabelTxL = lens btxIsTopLevel (\tx tl -> tx {btxIsTopLevel = tl})
+{-# INLINEABLE isTopLevelBabelTxL #-}
+
+subTxBodiesBabelTxL :: Lens' (BabelTx era) (TxSwaps era)
+subTxBodiesBabelTxL = lens btxSwaps (\tx stx -> tx {btxSwaps = stx})
+{-# INLINEABLE subTxBodiesBabelTxL #-}
+
+requiredTxBodiesBabelTxL :: Lens' (BabelTx era) (Strict.Map (TxId (EraCrypto era)) (TxBody era))
+requiredTxBodiesBabelTxL = lens btxRequiredTxBodies (\tx rtx -> tx {btxRequiredTxBodies = rtx})
+{-# INLINEABLE requiredTxBodiesBabelTxL #-}
+
+-- | `TxBody` setter and getter for `BabelTx`.
+bodyBabelTxL :: Lens' (BabelTx era) (TxBody era)
+bodyBabelTxL = lens btxBody (\tx txBody -> tx {btxBody = txBody})
+{-# INLINEABLE bodyBabelTxL #-}
+
+-- | `TxWits` setter and getter for `BabelTx`.
+witsBabelTxL :: Lens' (BabelTx era) (TxWits era)
+witsBabelTxL = lens btxWits (\tx txWits -> tx {btxWits = txWits})
+{-# INLINEABLE witsBabelTxL #-}
+
+-- | `TxAuxData` setter and getter for `BabelTx`.
+auxDataBabelTxL :: Lens' (BabelTx era) (StrictMaybe (TxAuxData era))
+auxDataBabelTxL = lens btxAuxiliaryData (\tx txTxAuxData -> tx {btxAuxiliaryData = txTxAuxData})
+{-# INLINEABLE auxDataBabelTxL #-}
+
+toCBORForSizeComputation ::
+  ( EncCBOR (TxBody era)
+  , EncCBOR (TxWits era)
+  , EncCBOR (TxAuxData era)
+  , EncCBOR (TxSwaps era)
+  ) =>
+  BabelTx era ->
+  Encoding
+toCBORForSizeComputation BabelTx {btxBody, btxWits, btxAuxiliaryData, btxSwaps, btxRequiredTxBodies} =
+  encodeListLen 5
+    <> encCBOR btxBody
+    <> encCBOR btxWits
+    <> encodeNullMaybe encCBOR (strictMaybeToMaybe btxAuxiliaryData)
+    <> encCBOR btxSwaps
+    <> encodeFoldableEncoder encCBOR btxRequiredTxBodies
+
+-- | txsize computes the length of the serialised bytes
+sizeBabelTxF :: forall era. (EraTx era, EncCBOR (TxSwaps era)) => SimpleGetter (BabelTx era) Integer
+sizeBabelTxF =
+  to $
+    fromIntegral
+      . LBS.length
+      . serialize (eraProtVerLow @era)
+      . toCBORForSizeComputation
+{-# INLINEABLE sizeBabelTxF #-}
+
+isValidBabelTxL :: Lens' (BabelTx era) IsValid
+isValidBabelTxL = lens btxIsValid (\tx valid -> tx {btxIsValid = valid})
+{-# INLINEABLE isValidBabelTxL #-}
+
+deriving instance
+  (Era era, Eq (TxSwaps era), Eq (TxBody era), Eq (TxWits era), Eq (TxAuxData era)) =>
+  Eq (BabelTx era)
+
+deriving instance
+  ( Era era
+  , Show (TxSwaps era)
+  , Show (TxBody era)
+  , Show (TxAuxData era)
+  , Show (Script era)
+  , Show (TxWits era)
+  ) =>
+  Show (BabelTx era)
+
+instance
+  ( Era era
+  , NoThunks (TxSwaps era)
+  , NoThunks (TxWits era)
+  , NoThunks (TxAuxData era)
+  , NoThunks (TxBody era)
+  ) =>
+  NoThunks (BabelTx era)
+
+instance
+  ( Era era
+  , NFData (TxSwaps era)
+  , NFData (TxWits era)
+  , NFData (TxAuxData era)
+  , NFData (TxBody era)
+  ) =>
+  NFData (BabelTx era)
+
+--------------------------------------------------------------------------------
+-- Serialisation
+--------------------------------------------------------------------------------
+
+-- | Construct an annotated Babel style transaction.
+babelSegwitTx ::
+  BabelEraTx era =>
+  Annotator (TxBody era) ->
+  Annotator (TxWits era) ->
+  IsValid ->
+  Maybe (Annotator (TxAuxData era)) ->
+  Bool ->
+  -- TODO WG these might be wrong
+  Annotator (TxSwaps era) ->
+  Annotator (Strict.Map (TxId (EraCrypto era)) (TxBody era)) ->
+  Annotator (Tx era)
+babelSegwitTx txBodyAnn txWitsAnn btxIsValid auxDataAnn btxIsTopLevel subTxsAnn requiredTxsAnn = Annotator $ \bytes ->
+  let txBody = runAnnotator txBodyAnn bytes
+      txWits = runAnnotator txWitsAnn bytes
+      txAuxData = maybeToStrictMaybe (flip runAnnotator bytes <$> auxDataAnn)
+      subTxs = runAnnotator subTxsAnn bytes
+      requiredTxs = runAnnotator requiredTxsAnn bytes
+   in mkBasicTx txBody
+        & witsTxL
+        .~ txWits
+        & auxDataTxL
+        .~ txAuxData
+        & isValidTxL
+        .~ btxIsValid
+        & isTopLevelTxL
+        .~ btxIsTopLevel
+        & subTxBodiesTxL
+        .~ subTxs
+        & requiredTxBodiesTxL
+        .~ requiredTxs
+
+--------------------------------------------------------------------------------
+-- Mempool Serialisation
+--
+-- We do not store the Tx bytes for the following reasons:
+-- - A Tx serialised in this way never forms part of any hashed structure, hence
+--   we do not worry about the serialisation changing and thus seeing a new
+--   hash.
+-- - The three principal components of this Tx already store their own bytes;
+--   here we simply concatenate them. The final component, `IsValid`, is
+--   just a flag and very cheap to serialise.
+--------------------------------------------------------------------------------
+
+-- | Encode to CBOR for the purposes of transmission from node to node, or from
+-- wallet to node.
+--
+-- Note that this serialisation is neither the serialisation used on-chain
+-- (where Txs are deconstructed using segwit), nor the serialisation used for
+-- computing the transaction size (which omits the `IsValid` field for
+-- compatibility with Mary - see 'toCBORForSizeComputation').
+toCBORForMempoolSubmission ::
+  ( Crypto (EraCrypto era)
+  , EncCBOR (TxBody era)
+  , EncCBOR (TxWits era)
+  , EncCBOR (TxAuxData era)
+  , EncCBOR (TxSwaps era)
+  ) =>
+  BabelTx era ->
+  Encoding
+toCBORForMempoolSubmission
+  BabelTx
+    { btxBody
+    , btxWits
+    , btxAuxiliaryData
+    , btxIsValid
+    , btxIsTopLevel
+    , btxSwaps
+    , btxRequiredTxBodies
+    } =
+    encode $
+      Rec BabelTx
+        !> To btxBody
+        !> To btxWits
+        !> To btxIsValid
+        !> E (encodeNullMaybe encCBOR . strictMaybeToMaybe) btxAuxiliaryData
+        !> To btxIsTopLevel
+        !> To btxSwaps
+        !> To btxRequiredTxBodies
+
+instance
+  ( Era era
+  , EncCBOR (TxSwaps era)
+  , EncCBOR (TxBody era)
+  , EncCBOR (TxAuxData era)
+  , EncCBOR (TxWits era)
+  ) =>
+  EncCBOR (BabelTx era)
+  where
+  encCBOR = toCBORForMempoolSubmission
+
+instance
+  ( Era era
+  , EncCBOR (TxSwaps era)
+  , EncCBOR (TxBody era)
+  , EncCBOR (TxAuxData era)
+  , EncCBOR (TxWits era)
+  ) =>
+  ToCBOR (BabelTx era)
+  where
+  toCBOR = toEraCBOR @era
+
+instance
+  ( Typeable era
+  , DecCBOR (Annotator (TxId (EraCrypto era)))
+  , DecCBOR (Annotator (TxSwaps era))
+  , DecCBOR (Annotator (TxBody era))
+  , DecCBOR (Annotator (TxWits era))
+  , DecCBOR (Annotator (TxAuxData era))
+  ) =>
+  DecCBOR (Annotator (BabelTx era))
+  where
+  decCBOR =
+    decode $
+      Ann (RecD BabelTx)
+        <*! From
+        <*! From
+        <*! Ann From
+        <*! D
+          ( sequence . maybeToStrictMaybe
+              <$> decodeNullMaybe decCBOR
+          )
+        <*! Ann From
+        <*! From
+        <*! D
+          ( decodeMapTraverse decCBOR decCBOR
+          )
+  {-# INLINE decCBOR #-}
+
+-- =======================================================================
+-- Some generic functions that compute over Tx. We try to be abstract over
+-- things that might differ from Era to Era like
+--    1) TxOut will have additional fields
+--    2) Scripts might appear in places other than the witness set. So
+--       we need such a 'witness' we pass it as a parameter and each call site
+--       can use a different method to compute it in the current Era.
+
+-- | Compute if an Addr has the hash of a TwoPhaseScript, we can tell
+--   what kind of Script from the Hash, by looking it up in the Map
+isTwoPhaseScriptAddressFromMap ::
+  forall era.
+  EraScript era =>
+  Map.Map (ScriptHash (EraCrypto era)) (Script era) ->
+  Addr (EraCrypto era) ->
+  Bool
+isTwoPhaseScriptAddressFromMap hashScriptMap addr =
+  case Shelley.getScriptHash @(EraCrypto era) addr of
+    Nothing -> False
+    Just hash -> any ok hashScriptMap
+      where
+        ok script = hashScript @era script == hash && not (isNativeScript @era script)
+
+babelEqTxRaw :: (BabelEraTx era, EqRaw (TxSwaps era)) => Tx era -> Tx era -> Bool
+babelEqTxRaw tx1 tx2 =
+  alonzoEqTxRaw tx1 tx2
+    && ( tx1 ^. isTopLevelTxL == tx2 ^. isTopLevelTxL
+          && liftEq2 (==) eqRaw (tx1 ^. subTxBodiesTxL) (tx2 ^. subTxBodiesTxL)
+          && tx1 ^. requiredTxBodiesTxL == tx2 ^. requiredTxBodiesTxL
+       )
+
+instance
+  ( Crypto c
+  , DecCBOR (Annotator (TxId c))
+  , DecCBOR (Annotator (TxSwaps (BabelEra c)))
+  , EncCBOR (TxSwaps (BabelEra c))
+  ) =>
+  Core.EraTx (BabelEra c)
+  where
   {-# SPECIALIZE instance Core.EraTx (BabelEra StandardCrypto) #-}
 
-  type Tx (BabelEra c) = AlonzoTx (BabelEra c)
+  type Tx (BabelEra c) = BabelTx (BabelEra c)
   type TxUpgradeError (BabelEra c) = Core.TxBodyUpgradeError (BabelEra c)
 
-  mkBasicTx = mkBasicAlonzoTx
+  mkBasicTx = mkBasicBabelTx
 
-  bodyTxL = bodyAlonzoTxL
+  bodyTxL = bodyBabelTxL
   {-# INLINE bodyTxL #-}
 
-  witsTxL = witsAlonzoTxL
+  witsTxL = witsBabelTxL
   {-# INLINE witsTxL #-}
 
-  auxDataTxL = auxDataAlonzoTxL
+  auxDataTxL = auxDataBabelTxL
   {-# INLINE auxDataTxL #-}
 
   -- requiredTxsTxL = lens (const mempty) const
   -- {-# INLINE requiredTxsTxL #-}
 
-  sizeTxF = sizeAlonzoTxF
+  sizeTxF = sizeBabelTxF
   {-# INLINE sizeTxF #-}
 
   validateNativeScript = validateTimelock
@@ -132,11 +442,14 @@ instance Crypto c => Core.EraTx (BabelEra c) where
   getMinFeeTx = getBabelMinFeeTx
 
   upgradeTx (AlonzoTx b w valid aux) =
-    AlonzoTx
+    BabelTx
       <$> upgradeTxBody b
       <*> pure (upgradeTxWits w)
       <*> pure valid
       <*> pure (fmap upgradeTxAuxData aux)
+      <*> pure True
+      <*> pure mempty
+      <*> pure mempty
 
 getBabelMinFeeTx ::
   ( EraTx era
@@ -163,215 +476,5 @@ getBabelMinFeeTx pp tx refScriptsSize =
 instance Crypto c => AlonzoEraTx (BabelEra c) where
   {-# SPECIALIZE instance AlonzoEraTx (BabelEra StandardCrypto) #-}
 
-  isValidTxL = isValidAlonzoTxL
+  isValidTxL = isValidBabelTxL
   {-# INLINE isValidTxL #-}
-
-instance Crypto c => Core.EraSegWits (BabelEra c) where
-  type TxStructure (BabelEra c) = Compose StrictSeq StrictSeq
-  type TxZones (BabelEra c) = BabelTxZones (BabelEra c)
-  fromTxZones = Compose . txZonesTxns
-  toTxZones = BabelTxZones . getCompose
-  flatten = StrictSeq.fromList . (Foldable.toList <=< Foldable.toList) . getCompose . Core.fromTxZones
-  hashTxZones = hashBabelTxZones
-  numSegComponents = 4
-
---------------------------------------------------------------------------------
--- Serialisation and hashing
---------------------------------------------------------------------------------
-
-instance Era era => EncCBORGroup (TxZones era) where
-  encCBORGroup (BabelTxZonesRaw _ bodyBytes witsBytes metadataBytes invalidBytes) =
-    encodePreEncoded $
-      BSL.toStrict $
-        bodyBytes <> witsBytes <> metadataBytes <> invalidBytes
-  encodedGroupSizeExpr size _proxy =
-    encodedSizeExpr size (Proxy :: Proxy BSL.ByteString)
-      + encodedSizeExpr size (Proxy :: Proxy BSL.ByteString)
-      + encodedSizeExpr size (Proxy :: Proxy BSL.ByteString)
-      + encodedSizeExpr size (Proxy :: Proxy BSL.ByteString)
-  listLen _ = 4
-  listLenBound _ = 4
-
-instance AlonzoEraTx era => DecCBOR (Annotator (TxZones era)) where
-  decCBOR = do
-    (bodies, bodiesAnn) <- withSlice decCBOR
-    (ws, witsAnn) <- withSlice decCBOR
-    let b = length bodies
-        inRange x = (0 <= x) && (x <= (b - 1))
-        w = length ws
-    (auxData :: Seq.Seq (Maybe (Annotator (Core.TxAuxData era))), auxDataAnn) <- withSlice $
-      do
-        m <- decCBOR
-        unless
-          (all inRange (Map.keysSet m))
-          ( fail
-              ( "Some Auxiliarydata index is not in the range: 0 .. "
-                  ++ show (b - 1)
-              )
-          )
-        pure (constructMetadata b m)
-    (isValIdxs, isValAnn) <- withSlice decCBOR
-    let vs = alignedValidFlags b isValIdxs
-    unless
-      (b == w)
-      ( fail $
-          "different number of transaction bodies ("
-            <> show b
-            <> ") and witness sets ("
-            <> show w
-            <> ")"
-      )
-    unless
-      (all inRange isValIdxs)
-      ( fail
-          ( "Some IsValid index is not in the range: 0 .. "
-              ++ show (b - 1)
-              ++ ", "
-              ++ show isValIdxs
-          )
-      )
-    let
-      -- TODO WG: This might not actually make sense. Think about it.
-      txns :: Annotator (StrictSeq (StrictSeq (Tx era)))
-      txns =
-        traverse
-          ( \bodies' ->
-              sequenceA $
-                StrictSeq.forceToStrict $
-                  Seq.zipWith4 alonzoSegwitTx bodies' ws vs auxData
-          )
-          (StrictSeq.forceToStrict bodies)
-
-    pure $
-      BabelTxZonesRaw
-        <$> txns
-        <*> bodiesAnn
-        <*> witsAnn
-        <*> auxDataAnn
-        <*> isValAnn
-
--- | Hash a given block body
-hashBabelTxZones ::
-  forall era.
-  Era era =>
-  BabelTxZones era ->
-  Hash (Core.EraCrypto era) Core.EraIndependentBlockBody
-hashBabelTxZones (BabelTxZonesRaw _ bodies ws md vs) =
-  coerce $
-    hashStrict $
-      BSL.toStrict $
-        toLazyByteString $
-          mconcat
-            [ hashPart bodies
-            , hashPart ws
-            , hashPart md
-            , hashPart vs
-            ]
-  where
-    hashStrict :: ByteString -> Hash (Core.EraCrypto era) ByteString
-    hashStrict = Hash.hashWith id
-    hashPart = shortByteString . Hash.hashToBytesShort . hashStrict . BSL.toStrict
-
-data BabelTxZones era = BabelTxZonesRaw
-  { txZonesTxns :: !(StrictSeq (StrictSeq (Core.Tx era)))
-  , txZonesBodyBytes :: BSL.ByteString
-  -- ^ Bytes encoding @Seq ('AlonzoTxBody' era)@
-  , txZonesWitsBytes :: BSL.ByteString
-  -- ^ Bytes encoding @Seq ('TxWitness' era)@
-  , txZonesMetadataBytes :: BSL.ByteString
-  -- ^ Bytes encoding a @Map Int ('AuxiliaryData')@. Missing indices have
-  -- 'SNothing' for metadata
-  , txZonesIsValidBytes :: BSL.ByteString
-  -- ^ Bytes representing a set of integers. These are the indices of
-  -- transactions with 'isValid' == False.
-  }
-  deriving (Generic)
-
-pattern BabelTxZones ::
-  forall era.
-  ( AlonzoEraTx era
-  , SafeToHash (Core.TxWits era)
-  ) =>
-  StrictSeq (StrictSeq (Core.Tx era)) ->
-  BabelTxZones era
-pattern BabelTxZones xs <-
-  BabelTxZonesRaw xs _ _ _ _
-  where
-    BabelTxZones txns =
-      let version = eraProtVerLow @era
-          serializeFoldablePreEncoded x =
-            serialize version $
-              encodeFoldableEncoder encodePreEncoded x
-          metaChunk index m = encodeIndexed <$> strictMaybeToMaybe m
-            where
-              encodeIndexed metadata = encCBOR index <> encodePreEncoded metadata
-          flattenedTxns =
-            StrictSeq.forceToStrict
-              (StrictSeq.fromStrict =<< StrictSeq.fromStrict txns)
-       in BabelTxZonesRaw
-            { txZonesTxns = txns
-            , txZonesBodyBytes =
-                serializeFoldablePreEncoded $ originalBytes . view bodyTxL <$> flattenedTxns
-            , txZonesWitsBytes =
-                serializeFoldablePreEncoded $ originalBytes . view witsTxL <$> flattenedTxns
-            , txZonesMetadataBytes =
-                serialize version . encodeFoldableMapEncoder metaChunk $
-                  fmap originalBytes . view auxDataTxL
-                    <$> StrictSeq.forceToStrict
-                      (StrictSeq.fromStrict =<< StrictSeq.fromStrict txns)
-            , txZonesIsValidBytes =
-                serialize version $ encCBOR $ nonValidatingIndices flattenedTxns
-            }
-
-{-# COMPLETE BabelTxZones #-}
-
-type TxZones era = BabelTxZones era
-
-{-# DEPRECATED TxZones "Use `BabelTxZones` instead" #-}
-
-deriving via
-  AllowThunksIn
-    '[ "txZonesBodyBytes"
-     , "txZonesWitsBytes"
-     , "txZonesMetadataBytes"
-     , "txZonesIsValidBytes"
-     ]
-    (TxZones era)
-  instance
-    (Typeable era, NoThunks (Core.Tx era)) => NoThunks (TxZones era)
-
-deriving stock instance Show (Core.Tx era) => Show (TxZones era)
-
-deriving stock instance Eq (Core.Tx era) => Eq (TxZones era)
-
---------------------------------------------------------------------------------
--- Internal utility functions
---------------------------------------------------------------------------------
-
--- | Given a sequence of transactions, return the indices of those which do not
--- validate. We store the indices of the non-validating transactions because we
--- expect this to be a much smaller set than the validating transactions.
-nonValidatingIndices :: AlonzoEraTx era => StrictSeq (Tx era) -> [Int]
-nonValidatingIndices (StrictSeq.fromStrict -> xs) =
-  Seq.foldrWithIndex
-    ( \idx tx acc ->
-        if tx ^. isValidTxL == IsValid False
-          then idx : acc
-          else acc
-    )
-    []
-    xs
-
--- | Given the number of transactions, and the set of indices for which these
--- transactions do not validate, create an aligned sequence of `IsValid`
--- flags.
---
--- This function operates much as the inverse of 'nonValidatingIndices'.
-alignedValidFlags :: Int -> [Int] -> Seq.Seq IsValid
-alignedValidFlags = alignedValidFlags' (-1)
-  where
-    alignedValidFlags' _ n [] = Seq.replicate n $ IsValid True
-    alignedValidFlags' prev n (x : xs) =
-      Seq.replicate (x - prev - 1) (IsValid True)
-        Seq.>< IsValid False
-        Seq.<| alignedValidFlags' x (n - (x - prev)) xs

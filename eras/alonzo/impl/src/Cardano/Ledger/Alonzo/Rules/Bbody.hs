@@ -29,8 +29,7 @@ import Cardano.Ledger.Alonzo.Rules.Utxo (AlonzoUtxoPredFailure)
 import Cardano.Ledger.Alonzo.Rules.Utxos (AlonzoUtxosPredFailure)
 import Cardano.Ledger.Alonzo.Rules.Utxow (AlonzoUtxowPredFailure)
 import Cardano.Ledger.Alonzo.Scripts (ExUnits (..), pointWiseExUnits)
-import Cardano.Ledger.Alonzo.Tx (AlonzoTx, totExUnits)
-import Cardano.Ledger.Alonzo.TxSeq (AlonzoTxSeq, txSeqTxns)
+import Cardano.Ledger.Alonzo.Tx (totExUnits)
 import Cardano.Ledger.Alonzo.TxWits (AlonzoEraTxWits (..))
 import Cardano.Ledger.BHeaderView (BHeaderView (..), isOverlaySlot)
 import Cardano.Ledger.BaseTypes (ShelleyBase, epochInfoPure)
@@ -38,7 +37,6 @@ import Cardano.Ledger.Binary (DecCBOR (..), EncCBOR (..))
 import Cardano.Ledger.Binary.Coders
 import Cardano.Ledger.Block (Block (..))
 import Cardano.Ledger.Core
-import qualified Cardano.Ledger.Era as Era
 import Cardano.Ledger.Keys (DSignable, Hash, coerceKeyRole)
 import Cardano.Ledger.Shelley.BlockChain (incrBlocks)
 import Cardano.Ledger.Shelley.LedgerState (LedgerState)
@@ -189,8 +187,6 @@ bbodyTransition ::
   , Signal (EraRule "LEDGERS" era) ~ Seq (Tx era)
   , EraSegWits era
   , AlonzoEraTxWits era
-  , Era.TxZones era ~ AlonzoTxSeq era
-  , Tx era ~ AlonzoTx era
   , AlonzoEraPParams era
   ) =>
   TransitionRule (someBBODY era)
@@ -202,9 +198,9 @@ bbodyTransition =
               , UnserialisedBlock bh txsSeq
               )
           ) -> do
-        let txs = txSeqTxns txsSeq
+        let txs = fromTxSeq txsSeq
             actualBodySize = bBodySize (pp ^. ppProtocolVersionL) txsSeq
-            actualBodyHash = hashTxZones @era txsSeq
+            actualBodyHash = hashTxSeq @era txsSeq
 
         actualBodySize
           == fromIntegral (bhviewBSize bh)
@@ -257,11 +253,8 @@ instance
   , Embed (EraRule "LEDGERS" era) (AlonzoBBODY era)
   , Environment (EraRule "LEDGERS" era) ~ ShelleyLedgersEnv era
   , State (EraRule "LEDGERS" era) ~ LedgerState era
-  , Signal (EraRule "LEDGERS" era) ~ Seq (AlonzoTx era)
+  , Signal (EraRule "LEDGERS" era) ~ Seq (Tx era)
   , AlonzoEraTxWits era
-  , Tx era ~ AlonzoTx era
-  , Era.TxZones era ~ AlonzoTxSeq era
-  , Tx era ~ AlonzoTx era
   , EraSegWits era
   , AlonzoEraPParams era
   ) =>

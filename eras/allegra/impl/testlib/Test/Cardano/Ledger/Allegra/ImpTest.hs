@@ -1,8 +1,6 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -46,9 +44,7 @@ instance
   fixupTx = shelleyFixupTx
 
 impAllegraSatisfyNativeScript ::
-  ( ShelleyEraImp era
-  , NativeScript era ~ Timelock era
-  ) =>
+  (ShelleyEraImp era, NativeScript era ~ Timelock era) =>
   Set.Set (KeyHash 'Witness (EraCrypto era)) ->
   NativeScript era ->
   ImpTestM era (Maybe (Map.Map (KeyHash 'Witness (EraCrypto era)) (KeyPair 'Witness (EraCrypto era))))

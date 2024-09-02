@@ -4,7 +4,6 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -83,12 +82,10 @@ data ShelleyTxSeq era = TxSeq'
   deriving (Generic)
 
 instance Crypto c => EraSegWits (ShelleyEra c) where
-  type TxStructure (ShelleyEra c) = StrictSeq
-  type TxZones (ShelleyEra c) = ShelleyTxSeq (ShelleyEra c)
-  fromTxZones = txSeqTxns
-  toTxZones = ShelleyTxSeq
-  flatten = fromTxZones
-  hashTxZones = bbHash
+  type TxSeq (ShelleyEra c) = ShelleyTxSeq (ShelleyEra c)
+  fromTxSeq = txSeqTxns
+  toTxSeq = ShelleyTxSeq
+  hashTxSeq = bbHash
   numSegComponents = 3
 
 deriving via

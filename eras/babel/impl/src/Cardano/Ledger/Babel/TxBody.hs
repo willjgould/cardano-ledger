@@ -22,7 +22,9 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Cardano.Ledger.Babel.TxBody (
+  BabelEraTxBody (..),
   ConwayEraTxBody (..),
+  BabelTxBodyUpgradeError (..),
   BabelTxBody (
     BabelTxBody,
     bbtbSpendInputs,
@@ -43,9 +45,13 @@ module Cardano.Ledger.Babel.TxBody (
     bbtbVotingProcedures,
     bbtbProposalProcedures,
     bbtbCurrentTreasuryValue,
-    bbtbTreasuryDonation
+    bbtbTreasuryDonation,
+    bbtbSwaps,
+    bbtbRequiredTxs,
+    bbtbSpendOuts,
+    bbtbCorInputs
   ),
-  BabelTxBodyRaw,
+  BabelTxBodyRaw (..),
 ) where
 
 import Cardano.Ledger.Alonzo.TxAuxData (AuxiliaryDataHash (..))
@@ -57,9 +63,6 @@ import Cardano.Ledger.Babbage.TxBody (
   babbageSpendableInputsTxBodyF,
  )
 import Cardano.Ledger.Babel.Era (BabelEra)
-
--- BabelTxCert (..),
-
 import Cardano.Ledger.Babel.Scripts (BabelPlutusPurpose (..))
 import Cardano.Ledger.Babel.TxCert (
   BabelTxCertUpgradeError,
@@ -117,7 +120,7 @@ import Cardano.Ledger.MemoBytes (
   mkMemoized,
  )
 import Cardano.Ledger.SafeHash (HashAnnotated (..), SafeToHash)
-import Cardano.Ledger.TxIn (TxIn (..))
+import Cardano.Ledger.TxIn (TxId, TxIn (..))
 import Cardano.Ledger.Val (Val (..))
 import Control.Arrow (left)
 import Control.DeepSeq (NFData)
@@ -128,11 +131,17 @@ import Data.Sequence.Strict (StrictSeq)
 import Data.Set (Set)
 import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
-import Lens.Micro (to, (^.))
+import Lens.Micro (Lens', to, (^.))
 import NoThunks.Class (NoThunks)
 
 instance Memoized BabelTxBody where
   type RawType BabelTxBody = BabelTxBodyRaw
+
+class (MaryEraTxBody era, AlonzoEraTxOut era) => BabelEraTxBody era where
+  swapsTxBodyL :: Lens' (TxBody era) (Set (TxId (EraCrypto era)))
+  requiredTxsTxBodyL :: Lens' (TxBody era) (Set (TxId (EraCrypto era)))
+  spendOutsTxBodyL :: Lens' (TxBody era) (StrictSeq (Sized (TxOut era)))
+  corInputsTxBodyL :: Lens' (TxBody era) (Set (TxIn (EraCrypto era)))
 
 data BabelTxBodyRaw era = BabelTxBodyRaw
   { bbtbrSpendInputs :: !(Set (TxIn (EraCrypto era)))
@@ -154,6 +163,10 @@ data BabelTxBodyRaw era = BabelTxBodyRaw
   , bbtbrProposalProcedures :: !(OSet.OSet (ProposalProcedure era))
   , bbtbrCurrentTreasuryValue :: !(StrictMaybe Coin)
   , bbtbrTreasuryDonation :: !Coin
+  , bbtbrSwaps :: !(Set (TxId (EraCrypto era)))
+  , bbtbrRequiredTxs :: !(Set (TxId (EraCrypto era)))
+  , bbtbrSpendOuts :: !(StrictSeq (Sized (TxOut era)))
+  , bbtbrCorInputs :: !(Set (TxIn (EraCrypto era)))
   }
   deriving (Generic, Typeable)
 
@@ -257,6 +270,10 @@ instance
         ofield
           (\x tx -> tx {bbtbrTreasuryDonation = fromSMaybe zero x})
           (D (decodePositiveCoin $ emptyFailure "Treasury Donation" "non-zero"))
+      bodyFields 23 = field (\x tx -> tx {bbtbrSwaps = x}) From
+      bodyFields 24 = field (\x tx -> tx {bbtbrRequiredTxs = x}) From
+      bodyFields 25 = field (\x tx -> tx {bbtbrSpendOuts = x}) From
+      bodyFields 26 = field (\x tx -> tx {bbtbrCorInputs = x}) From
       bodyFields n = field (\_ t -> t) (Invalid n)
       requiredFields :: [(Word, String)]
       requiredFields =
@@ -335,6 +352,10 @@ basicBabelTxBodyRaw =
     (VotingProcedures mempty)
     OSet.empty
     SNothing
+    mempty
+    mempty
+    mempty
+    mempty
     mempty
 
 data BabelTxBodyUpgradeError c
@@ -420,6 +441,10 @@ instance Crypto c => EraTxBody (BabelEra c) where
         , bbtbProposalProcedures = OSet.empty
         , bbtbVotingProcedures = VotingProcedures mempty
         , bbtbTreasuryDonation = Coin 0
+        , bbtbSwaps = mempty
+        , bbtbRequiredTxs = mempty
+        , bbtbSpendOuts = mempty
+        , bbtbCorInputs = mempty
         }
 
 instance Crypto c => AllegraEraTxBody (BabelEra c) where
@@ -533,6 +558,10 @@ pattern BabelTxBody ::
   OSet.OSet (ProposalProcedure era) ->
   StrictMaybe Coin ->
   Coin ->
+  Set (TxId (EraCrypto era)) ->
+  Set (TxId (EraCrypto era)) ->
+  StrictSeq (Sized (TxOut era)) ->
+  Set (TxIn (EraCrypto era)) ->
   BabelTxBody era
 pattern BabelTxBody
   { bbtbSpendInputs
@@ -554,6 +583,10 @@ pattern BabelTxBody
   , bbtbProposalProcedures
   , bbtbCurrentTreasuryValue
   , bbtbTreasuryDonation
+  , bbtbSwaps
+  , bbtbRequiredTxs
+  , bbtbSpendOuts
+  , bbtbCorInputs
   } <-
   ( getMemoRawType ->
       BabelTxBodyRaw
@@ -576,6 +609,10 @@ pattern BabelTxBody
         , bbtbrProposalProcedures = bbtbProposalProcedures
         , bbtbrCurrentTreasuryValue = bbtbCurrentTreasuryValue
         , bbtbrTreasuryDonation = bbtbTreasuryDonation
+        , bbtbrSwaps = bbtbSwaps
+        , bbtbrRequiredTxs = bbtbRequiredTxs
+        , bbtbrSpendOuts = bbtbSpendOuts
+        , bbtbrCorInputs = bbtbCorInputs
         }
     )
   where
@@ -598,7 +635,11 @@ pattern BabelTxBody
       votingProcedures
       proposalProcedures
       currentTreasuryValue
-      treasuryDonation =
+      treasuryDonation
+      swaps
+      requiredTxs
+      spendOuts
+      corInputs =
         mkMemoized $
           BabelTxBodyRaw
             inputsX
@@ -620,6 +661,10 @@ pattern BabelTxBody
             proposalProcedures
             currentTreasuryValue
             treasuryDonation
+            swaps
+            requiredTxs
+            spendOuts
+            corInputs
 
 {-# COMPLETE BabelTxBody #-}
 
@@ -637,8 +682,8 @@ encodeTxBodyRaw ::
 encodeTxBodyRaw BabelTxBodyRaw {..} =
   let ValidityInterval bot top = bbtbrVldt
    in Keyed
-        ( \i ci ri o cr tc f t c w b ->
-            BabelTxBodyRaw i ci ri o cr tc c w f (ValidityInterval b t)
+        ( \i ci ri o cr tc f t c w b swaps reqs spendOuts corIns ->
+            BabelTxBodyRaw i ci ri o cr tc c w f (ValidityInterval b t) swaps reqs spendOuts corIns
         )
         !> Key 0 (To bbtbrSpendInputs)
         !> Omit null (Key 13 (To bbtbrCollateralInputs))
@@ -660,6 +705,10 @@ encodeTxBodyRaw BabelTxBodyRaw {..} =
         !> Omit OSet.null (Key 20 (To bbtbrProposalProcedures))
         !> encodeKeyedStrictMaybe 21 bbtbrCurrentTreasuryValue
         !> Omit (== mempty) (Key 22 $ To bbtbrTreasuryDonation)
+        !> Omit (== mempty) (Key 23 $ To bbtbrSwaps)
+        !> Omit (== mempty) (Key 24 $ To bbtbrRequiredTxs)
+        !> Omit (== mempty) (Key 25 $ To bbtbrSpendOuts)
+        !> Omit (== mempty) (Key 26 $ To bbtbrCorInputs)
 
 instance
   ( ConwayEraTxBody era

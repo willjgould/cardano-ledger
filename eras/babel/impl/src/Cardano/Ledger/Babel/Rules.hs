@@ -9,8 +9,7 @@ module Cardano.Ledger.Babel.Rules (
   module Cardano.Ledger.Babel.Rules.Utxo,
   module Cardano.Ledger.Babel.Rules.Utxos,
   module Cardano.Ledger.Babel.Rules.Utxow,
-  module Cardano.Ledger.Babel.Rules.Zone,
-  module Cardano.Ledger.Babel.Rules.Zones,
+  module Cardano.Ledger.Babel.Rules.Swaps,
 )
 where
 
@@ -20,11 +19,10 @@ import Cardano.Ledger.Babel.Rules.Bbody ()
 import Cardano.Ledger.Babel.Rules.Ledger
 import Cardano.Ledger.Babel.Rules.Ledgers
 import Cardano.Ledger.Babel.Rules.Pool ()
+import Cardano.Ledger.Babel.Rules.Swaps
 import Cardano.Ledger.Babel.Rules.Utxo
 import Cardano.Ledger.Babel.Rules.Utxos
 import Cardano.Ledger.Babel.Rules.Utxow
-import Cardano.Ledger.Babel.Rules.Zone
-import Cardano.Ledger.Babel.Rules.Zones
 import Cardano.Ledger.Conway.Rules
 import Cardano.Ledger.Shelley.Rules (ShelleyTickEvent (..))
 

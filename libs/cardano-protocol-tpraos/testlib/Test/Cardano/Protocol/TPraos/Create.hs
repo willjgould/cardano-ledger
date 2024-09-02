@@ -222,8 +222,7 @@ evolveKESUntil sk1 (KESPeriod current) (KESPeriod target) = go sk1 current targe
 
 mkBlock ::
   forall era r.
-  ( TxStructure era ~ StrictSeq
-  , EraSegWits era
+  ( EraSegWits era
   , VRF.Signable (VRF (EraCrypto era)) Seed
   , KES.Signable (KES (EraCrypto era)) (BHBody (EraCrypto era))
   ) =>
@@ -248,9 +247,9 @@ mkBlock ::
   Block (BHeader (EraCrypto era)) era
 mkBlock prev pKeys txns slotNo blockNo enonce kesPeriod keyRegKesPeriod oCert =
   let protVer = ProtVer (eraProtVerHigh @era) 0
-      txseq = toTxZones @era (StrictSeq.fromList txns)
+      txseq = toTxSeq @era (StrictSeq.fromList txns)
       bodySize = fromIntegral $ bBodySize protVer txseq
-      bodyHash = hashTxZones @era txseq
+      bodyHash = hashTxSeq @era txseq
       bhBody = mkBHBody protVer prev pKeys slotNo blockNo enonce oCert bodySize bodyHash
       bHeader = mkBHeader pKeys kesPeriod keyRegKesPeriod bhBody
    in Block bHeader txseq
@@ -258,8 +257,7 @@ mkBlock prev pKeys txns slotNo blockNo enonce kesPeriod keyRegKesPeriod oCert =
 -- | Create a block with a faked VRF result.
 mkBlockFakeVRF ::
   forall era r.
-  ( TxStructure era ~ StrictSeq
-  , EraSegWits era
+  ( EraSegWits era
   , VRF.Signable (VRF (EraCrypto era)) (WithResult Seed)
   , KES.Signable (KES (EraCrypto era)) (BHBody (EraCrypto era))
   ) =>
@@ -288,9 +286,9 @@ mkBlockFakeVRF ::
   Block (BHeader (EraCrypto era)) era
 mkBlockFakeVRF prev pKeys txns slotNo blockNo enonce bnonce l kesPeriod keyRegKesPeriod oCert =
   let protVer = ProtVer (eraProtVerHigh @era) 0
-      txSeq = toTxZones @era (StrictSeq.fromList txns)
+      txSeq = toTxSeq @era (StrictSeq.fromList txns)
       bodySize = fromIntegral $ bBodySize protVer txSeq
-      bodyHash = hashTxZones txSeq
+      bodyHash = hashTxSeq txSeq
       bhBody =
         mkBHBodyFakeVRF bnonce l protVer prev pKeys slotNo blockNo enonce oCert bodySize bodyHash
       bHeader = mkBHeader pKeys kesPeriod keyRegKesPeriod bhBody

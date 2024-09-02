@@ -1,8 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 -- CanStartFromGenesis
 {-# OPTIONS_GHC -Wno-deprecations #-}
@@ -13,7 +11,7 @@ module Cardano.Ledger.Mary (
   MaryEra,
   ShelleyTx,
   ShelleyTxOut,
-  MaryValue (MaryValue),
+  MaryValue (..),
   MaryTxBody,
 )
 where
@@ -31,7 +29,7 @@ import Cardano.Ledger.Mary.TxAuxData ()
 import Cardano.Ledger.Mary.TxBody (MaryTxBody)
 import Cardano.Ledger.Mary.TxSeq ()
 import Cardano.Ledger.Mary.UTxO ()
-import Cardano.Ledger.Mary.Value (MaryValue (MaryValue))
+import Cardano.Ledger.Mary.Value (MaryValue (..))
 import Cardano.Ledger.Shelley.API
 
 type Mary = MaryEra StandardCrypto

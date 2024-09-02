@@ -227,10 +227,8 @@ initialShelleyState lab e utxo reserves genDelegs pp initNonce =
             )
             emptySnapShots
             def
-            & curPParamsEpochStateL
-            .~ pp
-            & prevPParamsEpochStateL
-            .~ pp
+            & curPParamsEpochStateL .~ pp
+            & prevPParamsEpochStateL .~ pp
         )
         SNothing
         (PoolDistr Map.empty)
@@ -274,7 +272,7 @@ instance
   , State (EraRule "TICK" era) ~ NewEpochState era
   , Signal (EraRule "TICK" era) ~ SlotNo
   , Embed (PRTCL (EraCrypto era)) (CHAIN era)
-  , EncCBORGroup (TxZones era)
+  , EncCBORGroup (TxSeq era)
   , ProtVerAtMost era 6
   , State (Core.EraRule "LEDGERS" era) ~ LedgerState era
   ) =>
@@ -313,7 +311,7 @@ chainTransition ::
   , State (EraRule "TICK" era) ~ NewEpochState era
   , Signal (EraRule "TICK" era) ~ SlotNo
   , Embed (PRTCL (EraCrypto era)) (CHAIN era)
-  , EncCBORGroup (TxZones era)
+  , EncCBORGroup (TxSeq era)
   , ProtVerAtMost era 6
   , State (Core.EraRule "LEDGERS" era) ~ LedgerState era
   , EraGov era

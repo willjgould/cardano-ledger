@@ -288,12 +288,8 @@ applyRUpdFiltered
     where
       !epochStateAns =
         EpochState as' ls' ss nm'
-          & curPParamsEpochStateL
-          .~ es
-          ^. curPParamsEpochStateL
-          & prevPParamsEpochStateL
-          .~ es
-          ^. prevPParamsEpochStateL
+          & curPParamsEpochStateL .~ es ^. curPParamsEpochStateL
+          & prevPParamsEpochStateL .~ es ^. prevPParamsEpochStateL
       utxoState_ = lsUTxOState ls
       dpState = lsCertState ls
       dState = certDState dpState

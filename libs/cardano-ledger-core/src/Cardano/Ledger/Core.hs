@@ -62,6 +62,8 @@ module Cardano.Ledger.Core (
   validateAuxiliaryData,
 
   -- * Babel fees
+  EraTxSwaps (..),
+  EraTxSwap (..),
 )
 where
 
@@ -117,6 +119,7 @@ import qualified Data.ByteString as BS
 import Data.Kind (Type)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Map.Strict as Strict
 import Data.Maybe (fromMaybe, isJust)
 import Data.Maybe.Strict (StrictMaybe)
 import Data.Sequence.Strict (StrictSeq)
@@ -198,10 +201,7 @@ class
   ( EraTxOut era
   , EraTxCert era
   , EraPParams era
-  , {- TODO This is where we've got a problem with the hashing
-       Might be tough. Type level field exclusions with `Symbol`s as field names?
-       Nasty idea, but maybe this requires a nasty solution. -}
-    HashAnnotated (TxBody era) EraIndependentTxBody (EraCrypto era)
+  , HashAnnotated (TxBody era) EraIndependentTxBody (EraCrypto era)
   , DecCBOR (Annotator (TxBody era))
   , EncCBOR (TxBody era)
   , ToCBOR (TxBody era)
@@ -622,47 +622,29 @@ hashScript =
 --   (Tx era)', witnessed by 'fromTxSeq' and 'toTxSeq'.
 class
   ( EraTx era
-  , Eq (TxZones era)
-  , Show (TxZones era)
-  , EncCBORGroup (TxZones era)
-  , DecCBOR (Annotator (TxZones era))
-  , Foldable (TxStructure era)
+  , Eq (TxSeq era)
+  , Show (TxSeq era)
+  , EncCBORGroup (TxSeq era)
+  , DecCBOR (Annotator (TxSeq era))
   ) =>
   EraSegWits era
   where
-  {- CIP-0118#block-structure-1
+  type TxSeq era = (r :: Type) | r -> era
 
-  To support the concept of a block having a different concrete representation
-  depending on era, we've added a `TxStructure` type. This isn't strictly necessary;
-  mapping can occur in the instances instead. This does, however, demonstrate the intent:
-  The concrete structure of transactions in a block is decided on a per-era basis.
-
-  Additionally, we have a (bad) name change of `TxSeq` to `TxZones`. I'd welcome
-  a better name in the actual implementation.
-
-  Finally, we have a `flatten` function, as much of the existing code (tests etc)
-  requires a `StrictSeq`, and doesn't care about the new meaning in our `TxZones`.
-
-  Jump to CIP-0118#block-structure-2 to continue... -}
-  type TxStructure era :: Type -> Type
-  type TxZones era = (r :: Type) | r -> era
-
-  fromTxZones :: TxZones era -> TxStructure era (Tx era)
-  toTxZones :: TxStructure era (Tx era) -> TxZones era
-
-  flatten :: TxZones era -> StrictSeq (Tx era)
+  fromTxSeq :: TxSeq era -> StrictSeq (Tx era)
+  toTxSeq :: StrictSeq (Tx era) -> TxSeq era
 
   -- | Get the block body hash from the TxSeq. Note that this is not a regular
   -- "hash the stored bytes" function since the block body hash forms a small
   -- Merkle tree.
-  hashTxZones ::
-    TxZones era ->
+  hashTxSeq ::
+    TxSeq era ->
     Hash.Hash (CC.HASH (EraCrypto era)) EraIndependentBlockBody
 
   -- | The number of segregated components
   numSegComponents :: Word64
 
-bBodySize :: forall era. EraSegWits era => ProtVer -> TxZones era -> Int
+bBodySize :: forall era. EraSegWits era => ProtVer -> TxSeq era -> Int
 bBodySize (ProtVer v _) = BS.length . serialize' v . encCBORGroup
 
 txIdTx :: EraTx era => Tx era -> TxId (EraCrypto era)
@@ -671,39 +653,53 @@ txIdTx tx = txIdTxBody (tx ^. bodyTxL)
 txIdTxBody :: EraTxBody era => TxBody era -> TxId (EraCrypto era)
 txIdTxBody = TxId . hashAnnotated
 
------ TODO WG NEW STUFF
+class
+  ( EraTxOut era
+  , EraTxCert era
+  , EraPParams era
+  , HashAnnotated (TxSwaps era) EraIndependentSwaps (EraCrypto era)
+  , DecCBOR (Annotator (TxSwaps era))
+  , EncCBOR (TxSwaps era)
+  , ToCBOR (TxSwaps era)
+  , NoThunks (TxSwaps era)
+  , NFData (TxSwaps era)
+  , Show (TxSwaps era)
+  , Eq (TxSwaps era)
+  , EqRaw (TxSwaps era)
+  , Monoid (TxSwaps era)
+  ) =>
+  EraTxSwaps era
+  where
+  type TxSwaps era = (r :: Type) | r -> era
 
--- class
---   ( EraTxOut era
---   , EraTxCert era
---   , EraPParams era
---   , HashAnnotated (TxBody era) EraIndependentTxBody (EraCrypto era)
---   , DecCBOR (Annotator (TxBody era))
---   , EncCBOR (TxBody era)
---   , ToCBOR (TxBody era)
---   , NoThunks (TxBody era)
---   , NFData (TxBody era)
---   , Show (TxBody era)
---   , Eq (TxBody era)
---   , EqRaw (TxBody era)
---   , HashAnnotated (RequiredTxs era) EraIndependentRequiredTxs (EraCrypto era)
---   , DecCBOR (Annotator (RequiredTxs era))
---   , EncCBOR (RequiredTxs era)
---   , ToCBOR (RequiredTxs era)
---   , NoThunks (RequiredTxs era)
---   , NFData (RequiredTxs era)
---   , Show (RequiredTxs era)
---   , Eq (RequiredTxs era)
---   , EqRaw (RequiredTxs era)
---   , HashAnnotated
---       (TxBody era, RequiredTxs era)
---       (EraIndependentTxBody, EraIndependentRequiredTxs)
---       (EraCrypto era)
---   ) =>
---   EraCompositeWitness era
---   where
---   type CompositeWitness era = (r :: Type) | r -> era
+  mkBasicTxSwaps :: TxSwaps era
+  mkBasicTxSwaps = mempty
 
---   txBodyCompositeWitnessL :: Lens' (CompositeWitness era) (TxBody era)
+  fromTxSwaps :: TxSwaps era -> Strict.Map (TxId (EraCrypto era)) (TxSwap era)
+  toTxSwaps :: Strict.Map (TxId (EraCrypto era)) (TxSwap era) -> TxSwaps era
 
---   requiredTxsCompositeWitnessL :: Lens' (CompositeWitness era) (RequiredTxs era)
+class
+  ( EraTxOut era
+  , EraTxCert era
+  , EraPParams era
+  , HashAnnotated (TxSwap era) EraIndependentSwap (EraCrypto era)
+  , DecCBOR (Annotator (TxSwap era))
+  , EncCBOR (TxSwap era)
+  , ToCBOR (TxSwap era)
+  , NoThunks (TxSwap era)
+  , NFData (TxSwap era)
+  , Show (TxSwap era)
+  , Eq (TxSwap era)
+  , EqRaw (TxSwap era)
+  ) =>
+  EraTxSwap era
+  where
+  type TxSwap era = (r :: Type) | r -> era
+
+  mkBasicTxSwap :: TxSwap era
+
+  txBodyTxSwapL :: Lens' (TxSwap era) (TxBody era)
+
+  witnessesTxSwapL :: Lens' (TxSwap era) (Set (WitVKey 'Witness (EraCrypto era)))
+
+  auxDataTxSwapL :: Lens' (TxSwap era) (StrictMaybe (TxAuxData era))

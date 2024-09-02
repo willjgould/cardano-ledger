@@ -6,7 +6,6 @@
 
 module Cardano.Ledger.Conway.Tx (
   module BabbageTxReExport,
-  getConwayMinFeeTx,
 )
 where
 
@@ -39,7 +38,6 @@ import Cardano.Ledger.Conway.TxWits ()
 import Cardano.Ledger.Core
 import Cardano.Ledger.Crypto
 import Cardano.Ledger.Val (Val (..))
-import qualified Data.Sequence.Strict as StrictSeq
 import Lens.Micro ((^.))
 
 instance Crypto c => EraTx (ConwayEra c) where
@@ -96,10 +94,8 @@ instance Crypto c => AlonzoEraTx (ConwayEra c) where
   {-# INLINE isValidTxL #-}
 
 instance Crypto c => EraSegWits (ConwayEra c) where
-  type TxStructure (ConwayEra c) = StrictSeq.StrictSeq
-  type TxZones (ConwayEra c) = AlonzoTxSeq (ConwayEra c)
-  fromTxZones = txSeqTxns
-  toTxZones = AlonzoTxSeq
-  flatten = fromTxZones
-  hashTxZones = hashAlonzoTxSeq
+  type TxSeq (ConwayEra c) = AlonzoTxSeq (ConwayEra c)
+  fromTxSeq = txSeqTxns
+  toTxSeq = AlonzoTxSeq
+  hashTxSeq = hashAlonzoTxSeq
   numSegComponents = 4

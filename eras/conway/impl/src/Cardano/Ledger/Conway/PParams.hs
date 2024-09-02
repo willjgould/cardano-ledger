@@ -23,6 +23,10 @@
 -- | This module contains the type of protocol parameters and EraPParams instance
 module Cardano.Ledger.Conway.PParams (
   ConwayEraPParams (..),
+  conwayApplyPPUpdates,
+  conwayPParamsPairs,
+  emptyConwayPParams,
+  emptyConwayPParamsUpdate,
   ppPoolVotingThresholdsL,
   ppDRepVotingThresholdsL,
   ppCommitteeMinSizeL,
@@ -41,8 +45,6 @@ module Cardano.Ledger.Conway.PParams (
   ppuDRepDepositL,
   ppuDRepActivityL,
   ppuMinFeeRefScriptCostPerByteL,
-  conwayPParamsPairs,
-  conwayApplyPPUpdates,
   PoolVotingThresholds (..),
   pvtCommitteeNoConfidenceL,
   pvtCommitteeNormalL,
@@ -52,8 +54,6 @@ module Cardano.Ledger.Conway.PParams (
   dvtCommitteeNormalL,
   dvtHardForkInitiationL,
   dvtMotionNoConfidenceL,
-  emptyConwayPParamsUpdate,
-  emptyConwayPParams,
   dvtPPNetworkGroupL,
   dvtPPGovGroupL,
   dvtPPTechnicalGroupL,

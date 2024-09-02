@@ -9,6 +9,7 @@
 -- CanStartFromGenesis
 {-# OPTIONS_GHC -Wno-deprecations #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Cardano.Ledger.Alonzo (
   Alonzo,
@@ -33,9 +34,9 @@ import Cardano.Ledger.Alonzo.Translation ()
 import Cardano.Ledger.Alonzo.Tx ()
 import Cardano.Ledger.Alonzo.TxAuxData (AlonzoTxAuxData)
 import Cardano.Ledger.Alonzo.TxBody (AlonzoTxBody, AlonzoTxOut)
-import Cardano.Ledger.Alonzo.TxWits ()
 import Cardano.Ledger.Alonzo.UTxO ()
 import Cardano.Ledger.BaseTypes (Globals)
+import Cardano.Ledger.Binary (EncCBORGroup)
 import Cardano.Ledger.Core
 import Cardano.Ledger.Crypto (Crypto, StandardCrypto)
 import Cardano.Ledger.Keys (DSignable, Hash)
@@ -55,9 +56,7 @@ type Alonzo = AlonzoEra StandardCrypto
 
 reapplyAlonzoTx ::
   forall era m.
-  ( API.ApplyTx era
-  , MonadError (ApplyTxError era) m
-  ) =>
+  (API.ApplyTx era, MonadError (ApplyTxError era) m) =>
   Globals ->
   MempoolEnv era ->
   MempoolState era ->
@@ -74,7 +73,13 @@ reapplyAlonzoTx globals env state vtx =
 instance (Crypto c, DSignable c (Hash c EraIndependentTxBody)) => API.ApplyTx (AlonzoEra c) where
   reapplyTx = reapplyAlonzoTx
 
-instance (Crypto c, DSignable c (Hash c EraIndependentTxBody)) => API.ApplyBlock (AlonzoEra c)
+instance
+  ( Crypto c
+  , DSignable c (Hash c EraIndependentTxBody)
+  , EncCBORGroup (TxSeq (AlonzoEra c))
+  , EraSegWits (AlonzoEra c)
+  ) =>
+  API.ApplyBlock (AlonzoEra c)
 
 instance Crypto c => API.CanStartFromGenesis (AlonzoEra c) where
   type AdditionalGenesisConfig (AlonzoEra c) = AlonzoGenesis

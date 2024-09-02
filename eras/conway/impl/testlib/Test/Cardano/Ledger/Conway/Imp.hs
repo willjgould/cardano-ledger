@@ -35,11 +35,7 @@ import qualified Test.Cardano.Ledger.Conway.Imp.GovSpec as Gov
 import qualified Test.Cardano.Ledger.Conway.Imp.RatifySpec as Ratify
 import qualified Test.Cardano.Ledger.Conway.Imp.UtxoSpec as Utxo
 import qualified Test.Cardano.Ledger.Conway.Imp.UtxosSpec as Utxos
-import Test.Cardano.Ledger.Conway.ImpTest (
-  ConwayEraImp,
-  withImpState,
-  withImpStateWithProtVer,
- )
+import Test.Cardano.Ledger.Conway.ImpTest (ConwayEraImp, withImpState, withImpStateWithProtVer)
 
 spec ::
   forall era.

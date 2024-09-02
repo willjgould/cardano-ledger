@@ -1,22 +1,16 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE ImpredicativeTypes #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE UndecidableSuperClasses #-}
 
 -- | Interface to the block validation and chain extension logic in the Shelley
 -- API.
@@ -71,7 +65,7 @@ class
   , Environment (EraRule "BBODY" era) ~ STS.BbodyEnv era
   , State (EraRule "BBODY" era) ~ STS.ShelleyBbodyState era
   , Signal (EraRule "BBODY" era) ~ Block (BHeaderView (EraCrypto era)) era
-  , EncCBORGroup (TxZones era)
+  , EncCBORGroup (TxSeq era)
   , State (EraRule "LEDGERS" era) ~ LedgerState era
   ) =>
   ApplyBlock era
@@ -233,7 +227,7 @@ mkBbodyEnv
       }
 
 updateNewEpochState ::
-  (State (EraRule "LEDGERS" era) ~ LedgerState era, EraGov era) =>
+  (LedgerState era ~ State (EraRule "LEDGERS" era), EraGov era) =>
   NewEpochState era ->
   STS.ShelleyBbodyState era ->
   NewEpochState era

@@ -99,39 +99,31 @@ datumAndReferenceInputsSpec = do
     referringTx <-
       submitTxAnn "Transaction that refers to the script" $
         mkBasicTx mkBasicTxBody
-          & bodyTxL
-          . inputsTxBodyL
-          .~ Set.singleton (mkTxInPartial producingTx 1)
-          & bodyTxL
-          . referenceInputsTxBodyL
-          .~ Set.singleton (mkTxInPartial producingTx 0)
+          & bodyTxL . inputsTxBodyL .~ Set.singleton (mkTxInPartial producingTx 1)
+          & bodyTxL . referenceInputsTxBodyL .~ Set.singleton (mkTxInPartial producingTx 0)
     (referringTx ^. witsTxL . scriptTxWitsL) `shouldBe` mempty
   it "can use regular inputs for reference" $ do
     producingTx <- setupRefTx
     referringTx <-
       submitTxAnn "Consuming transaction" $
         mkBasicTx mkBasicTxBody
-          & bodyTxL
-          . inputsTxBodyL
-          .~ Set.fromList
-            [ mkTxInPartial producingTx 0
-            , mkTxInPartial producingTx 1
-            ]
+          & bodyTxL . inputsTxBodyL
+            .~ Set.fromList
+              [ mkTxInPartial producingTx 0
+              , mkTxInPartial producingTx 1
+              ]
     (referringTx ^. witsTxL . scriptTxWitsL) `shouldBe` mempty
   it "fails with same txIn in regular inputs and reference inputs" $ do
     producingTx <- setupRefTx
     let
       consumingTx =
         mkBasicTx mkBasicTxBody
-          & bodyTxL
-          . inputsTxBodyL
-          .~ Set.fromList
-            [ mkTxInPartial producingTx 0
-            , mkTxInPartial producingTx 1
-            ]
-          & bodyTxL
-          . referenceInputsTxBodyL
-          .~ Set.singleton (mkTxInPartial producingTx 0)
+          & bodyTxL . inputsTxBodyL
+            .~ Set.fromList
+              [ mkTxInPartial producingTx 0
+              , mkTxInPartial producingTx 1
+              ]
+          & bodyTxL . referenceInputsTxBodyL .~ Set.singleton (mkTxInPartial producingTx 0)
     _ <-
       submitFailingTx
         consumingTx
@@ -144,24 +136,19 @@ datumAndReferenceInputsSpec = do
     refTxOut <- mkRefTxOut shSpending
     let producingTx =
           mkBasicTx mkBasicTxBody
-            & bodyTxL
-            . outputsTxBodyL
-            .~ SSeq.fromList
-              [ refTxOut
-              , scriptLockedTxOut shSpending & dataTxOutL .~ SJust (Data spendDatum)
-              ]
+            & bodyTxL . outputsTxBodyL
+              .~ SSeq.fromList
+                [ refTxOut
+                , scriptLockedTxOut shSpending & dataTxOutL .~ SJust (Data spendDatum)
+                ]
     logToExpr producingTx
     producingTxId <- txIdTx <$> submitTxAnn "Producing transaction" producingTx
     let
       lockedTxIn = mkTxInPartial producingTxId 1
       consumingTx =
         mkBasicTx mkBasicTxBody
-          & bodyTxL
-          . inputsTxBodyL
-          .~ Set.singleton lockedTxIn
-          & bodyTxL
-          . referenceInputsTxBodyL
-          .~ Set.singleton (mkTxInPartial producingTxId 0)
+          & bodyTxL . inputsTxBodyL .~ Set.singleton lockedTxIn
+          & bodyTxL . referenceInputsTxBodyL .~ Set.singleton (mkTxInPartial producingTxId 0)
     impAnn "Consuming transaction" $
       submitFailingTx
         consumingTx
@@ -174,15 +161,12 @@ datumAndReferenceInputsSpec = do
     let
       consumingTx =
         mkBasicTx mkBasicTxBody
-          & bodyTxL
-          . inputsTxBodyL
-          .~ Set.fromList
-            [ mkTxInPartial producingTx 0
-            , mkTxInPartial producingTx 1
-            ]
-          & bodyTxL
-          . referenceInputsTxBodyL
-          .~ Set.singleton (mkTxInPartial producingTx 0)
+          & bodyTxL . inputsTxBodyL
+            .~ Set.fromList
+              [ mkTxInPartial producingTx 0
+              , mkTxInPartial producingTx 1
+              ]
+          & bodyTxL . referenceInputsTxBodyL .~ Set.singleton (mkTxInPartial producingTx 0)
     _ <-
       submitFailingTx
         consumingTx
@@ -196,22 +180,17 @@ datumAndReferenceInputsSpec = do
     producingTx <-
       fmap txIdTx . submitTxAnn "Producing transaction" $
         mkBasicTx mkBasicTxBody
-          & bodyTxL
-          . outputsTxBodyL
-          .~ SSeq.fromList
-            [ refTxOut
-            , scriptLockedTxOut shSpending & dataTxOutL .~ SJust (Data spendDatum)
-            ]
+          & bodyTxL . outputsTxBodyL
+            .~ SSeq.fromList
+              [ refTxOut
+              , scriptLockedTxOut shSpending & dataTxOutL .~ SJust (Data spendDatum)
+              ]
     let
       lockedTxIn = mkTxInPartial producingTx 1
       consumingTx =
         mkBasicTx mkBasicTxBody
-          & bodyTxL
-          . inputsTxBodyL
-          .~ Set.singleton lockedTxIn
-          & bodyTxL
-          . referenceInputsTxBodyL
-          .~ Set.singleton (mkTxInPartial producingTx 0)
+          & bodyTxL . inputsTxBodyL .~ Set.singleton lockedTxIn
+          & bodyTxL . referenceInputsTxBodyL .~ Set.singleton (mkTxInPartial producingTx 0)
     impAnn "Consuming transaction" $
       submitFailingTx
         consumingTx
@@ -323,12 +302,10 @@ conwayFeaturesPlutusV1V2FailureSpec = do
         let testCertificateTranslated okCert tx = do
               submitTx_
                 ( mkBasicTx mkBasicTxBody
-                    & bodyTxL
-                    . inputsTxBodyL
-                    .~ Set.singleton (txInAt (0 :: Int) tx)
-                    & bodyTxL
-                    . certsTxBodyL
-                    .~ SSeq.singleton okCert
+                    & bodyTxL . inputsTxBodyL
+                      .~ Set.singleton (txInAt (0 :: Int) tx)
+                    & bodyTxL . certsTxBodyL
+                      .~ SSeq.singleton okCert
                 )
         describe "RegDepositTxCert" $ do
           it "V1" $ do
@@ -362,12 +339,10 @@ conwayFeaturesPlutusV1V2FailureSpec = do
             testCertificateNotSupported badCert tx = do
               submitFailingTx
                 ( mkBasicTx mkBasicTxBody
-                    & bodyTxL
-                    . inputsTxBodyL
-                    .~ Set.singleton (txInAt (0 :: Int) tx)
-                    & bodyTxL
-                    . certsTxBodyL
-                    .~ SSeq.singleton badCert
+                    & bodyTxL . inputsTxBodyL
+                      .~ Set.singleton (txInAt (0 :: Int) tx)
+                    & bodyTxL . certsTxBodyL
+                      .~ SSeq.singleton badCert
                 )
                 ( pure . injectFailure $
                     CollectErrors
@@ -487,12 +462,8 @@ govPolicySpec = do
                 }
         let tx =
               mkBasicTx mkBasicTxBody
-                & bodyTxL
-                . proposalProceduresTxBodyL
-                .~ [proposal]
-                & bodyTxL
-                . vldtTxBodyL
-                .~ ValidityInterval SNothing SNothing
+                & bodyTxL . proposalProceduresTxBodyL .~ [proposal]
+                & bodyTxL . vldtTxBodyL .~ ValidityInterval SNothing SNothing
         submitFailingTx tx [injectFailure $ ScriptWitnessNotValidatingUTXOW [scriptHash]]
 
       impAnn "TreasuryWithdrawals" $ do
@@ -508,12 +479,8 @@ govPolicySpec = do
                 }
         let tx =
               mkBasicTx mkBasicTxBody
-                & bodyTxL
-                . proposalProceduresTxBodyL
-                .~ [proposal]
-                & bodyTxL
-                . vldtTxBodyL
-                .~ ValidityInterval SNothing SNothing
+                & bodyTxL . proposalProceduresTxBodyL .~ [proposal]
+                & bodyTxL . vldtTxBodyL .~ ValidityInterval SNothing SNothing
         submitFailingTx tx [injectFailure $ ScriptWitnessNotValidatingUTXOW [scriptHash]]
 
     it "alwaysSucceeds Plutus govPolicy validates" $ do
@@ -704,9 +671,8 @@ txWithPlutus ::
 txWithPlutus sh = do
   submitTxAnn "Submit a Plutus" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . outputsTxBodyL
-      .~ SSeq.singleton (scriptLockedTxOut sh)
+      & bodyTxL . outputsTxBodyL
+        .~ SSeq.singleton (scriptLockedTxOut sh)
 
 scriptLockedTxOut ::
   forall era.
@@ -717,8 +683,7 @@ scriptLockedTxOut shSpending =
   mkBasicTxOut
     (Addr Testnet (ScriptHashObj shSpending) StakeRefNull)
     (inject $ Coin 1_000_000)
-    & dataHashTxOutL
-    .~ SJust (hashData @era $ Data spendDatum)
+    & dataHashTxOutL .~ SJust (hashData @era $ Data spendDatum)
 
 mkRefTxOut ::
   ( BabbageEraTxOut era
@@ -732,8 +697,7 @@ mkRefTxOut sh = do
   let mbyPlutusScript = impLookupPlutusScriptMaybe sh
   pure $
     mkBasicTxOut (mkAddr (kpPayment, kpStaking)) (inject $ Coin 100)
-      & referenceScriptTxOutL
-      .~ maybeToStrictMaybe (fromPlutusScript <$> mbyPlutusScript)
+      & referenceScriptTxOutL .~ maybeToStrictMaybe (fromPlutusScript <$> mbyPlutusScript)
 
 setupRefTx ::
   forall era.
@@ -746,13 +710,12 @@ setupRefTx = do
   refTxOut <- mkRefTxOut shSpending
   fmap txIdTx . submitTxAnn "Producing transaction" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . outputsTxBodyL
-      .~ SSeq.fromList
-        [ refTxOut
-        , scriptLockedTxOut shSpending
-        , scriptLockedTxOut shSpending
-        ]
+      & bodyTxL . outputsTxBodyL
+        .~ SSeq.fromList
+          [ refTxOut
+          , scriptLockedTxOut shSpending
+          , scriptLockedTxOut shSpending
+          ]
 
 testPlutusV1V2Failure ::
   forall era a.
@@ -769,21 +732,16 @@ testPlutusV1V2Failure sh badField lenz errorField = do
   tx <- txWithPlutus @era sh
   submitFailingTx
     ( mkBasicTx mkBasicTxBody
-        & bodyTxL
-        . inputsTxBodyL
-        .~ Set.singleton (txInAt (0 :: Int) tx)
-        & bodyTxL
-        . lenz
-        .~ badField
+        & bodyTxL . inputsTxBodyL
+          .~ Set.singleton (txInAt (0 :: Int) tx)
+        & bodyTxL . lenz
+          .~ badField
     )
     ( pure . injectFailure $
         CollectErrors [BadTranslation errorField]
     )
 
-expectPhase2Invalid ::
-  ConwayEraImp era =>
-  Tx era ->
-  ImpTestM era ()
+expectPhase2Invalid :: ConwayEraImp era => Tx era -> ImpTestM era ()
 expectPhase2Invalid tx = do
   res <- trySubmitTx tx
   -- TODO: find a way to check that this is a PlutusFailure
@@ -800,12 +758,8 @@ mintingTokenTx tx sh = do
   (_, addr) <- freshKeyAddr
   pure $
     tx
-      & bodyTxL
-      . mintTxBodyL
-      .~ ma
-      & bodyTxL
-      . outputsTxBodyL
-      <>~ [mkBasicTxOut addr (MaryValue (Coin 12345) ma)]
+      & bodyTxL . mintTxBodyL .~ ma
+      & bodyTxL . outputsTxBodyL <>~ [mkBasicTxOut addr (MaryValue (Coin 12345) ma)]
 
 enactCostModels ::
   ConwayEraImp era =>

@@ -1,6 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -111,17 +110,13 @@ initAlonzoImpNES = nesEsL . curPParamsEpochStateL %~ initPParams
   where
     initPParams pp =
       pp
-        & ppMaxValSizeL
-        .~ 1_000_000_000
-        & ppMaxTxExUnitsL
-        .~ ExUnits 10_000_000 10_000_000
+        & ppMaxValSizeL .~ 1_000_000_000
+        & ppMaxTxExUnitsL .~ ExUnits 10_000_000 10_000_000
         & ppCostModelsL
-        .~ testingCostModels
-          [PlutusV1 .. eraMaxLanguage @era]
+          .~ testingCostModels
+            [PlutusV1 .. eraMaxLanguage @era]
 
-makeCollateralInput ::
-  ShelleyEraImp era =>
-  ImpTestM era (TxIn (EraCrypto era))
+makeCollateralInput :: ShelleyEraImp era => ImpTestM era (TxIn (EraCrypto era))
 makeCollateralInput = do
   -- TODO: make more accurate
   let collateral = Coin 10_000_000
@@ -129,9 +124,7 @@ makeCollateralInput = do
   withFixup fixupTx $ sendCoinTo addr collateral
 
 addCollateralInput ::
-  ( AlonzoEraImp era
-  , ScriptsNeeded era ~ AlonzoScriptsNeeded era
-  ) =>
+  (AlonzoEraImp era, ScriptsNeeded era ~ AlonzoScriptsNeeded era) =>
   Tx era ->
   ImpTestM era (Tx era)
 addCollateralInput tx = impAnn "addCollateralInput" $ do
@@ -142,9 +135,7 @@ addCollateralInput tx = impAnn "addCollateralInput" $ do
       collateralInput <- makeCollateralInput
       pure $
         tx
-          & bodyTxL
-          . collateralInputsTxBodyL
-          <>~ Set.singleton collateralInput
+          & bodyTxL . collateralInputsTxBodyL <>~ Set.singleton collateralInput
 
 impLookupPlutusScriptMaybe ::
   forall era.
@@ -184,9 +175,8 @@ fixupRedeemerIndices tx = impAnn "fixupRedeemerIndices" $ do
     updateIndex x = x
   pure $
     tx
-      & witsTxL
-      . rdmrsTxWitsL
-      %~ (\(Redeemers m) -> Redeemers $ Map.mapKeys updateIndex m)
+      & witsTxL . rdmrsTxWitsL
+        %~ (\(Redeemers m) -> Redeemers $ Map.mapKeys updateIndex m)
 
 fixupRedeemers ::
   forall era.
@@ -205,9 +195,7 @@ fixupRedeemers tx = impAnn "fixupRedeemers" $ do
     newRedeemers = Map.fromList (mkNewRedeemers <$> contexts)
   pure $
     tx
-      & witsTxL
-      . rdmrsTxWitsL
-      .~ Redeemers (Map.union oldRedeemers newRedeemers)
+      & witsTxL . rdmrsTxWitsL .~ Redeemers (Map.union oldRedeemers newRedeemers)
 
 fixupScriptWits ::
   forall era.
@@ -235,9 +223,7 @@ fixupScriptWits tx = impAnn "fixupScriptWits" $ do
     (sh,) <$> plutusToScript plutus
   pure $
     tx
-      & witsTxL
-      . scriptTxWitsL
-      <>~ Map.fromList scriptWits
+      & witsTxL . scriptTxWitsL <>~ Map.fromList scriptWits
 
 fixupDatums ::
   forall era.
@@ -254,10 +240,9 @@ fixupDatums tx = impAnn "fixupDatums" $ do
   let TxDats prevDats = tx ^. witsTxL . datsTxWitsL
   pure $
     tx
-      & witsTxL
-      . datsTxWitsL
-      .~ TxDats
-        (Map.union prevDats $ fromElems hashData (catMaybes datums))
+      & witsTxL . datsTxWitsL
+        .~ TxDats
+          (Map.union prevDats $ fromElems hashData (catMaybes datums))
   where
     collectDatums :: PlutusPurpose AsIxItem era -> ImpTestM era (Maybe (Data era))
     collectDatums purpose = do
@@ -300,9 +285,7 @@ fixupPPHash tx = impAnn "fixupPPHash" $ do
         (tx ^. witsTxL . datsTxWitsL)
   pure $
     tx
-      & bodyTxL
-      . scriptIntegrityHashTxBodyL
-      .~ integrityHash
+      & bodyTxL . scriptIntegrityHashTxBodyL .~ integrityHash
 
 fixupOutputDatums ::
   forall era.
@@ -324,16 +307,13 @@ fixupOutputDatums tx = impAnn "fixupOutputDatums" $ do
                       expectJust mbySpendDatum
                   pure $
                     txOut
-                      & dataHashTxOutL
-                      .~ SJust (hashData @era $ Data spendDatum)
+                      & dataHashTxOutL .~ SJust (hashData @era $ Data spendDatum)
             _ -> pure txOut
         _ -> pure txOut
   newOutputs <- traverse addDatum $ tx ^. bodyTxL . outputsTxBodyL
   pure $
     tx
-      & bodyTxL
-      . outputsTxBodyL
-      .~ newOutputs
+      & bodyTxL . outputsTxBodyL .~ newOutputs
 
 alonzoFixupTx ::
   ( ScriptsNeeded era ~ AlonzoScriptsNeeded era

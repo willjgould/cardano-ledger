@@ -4,7 +4,6 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
 
 module Test.Cardano.Ledger.Conway.Imp.RatifySpec (
   spec,
@@ -148,7 +147,7 @@ paramChangeAffectsProposalsSpec =
                     SNothing
                     ( emptyPParamsUpdate
                         & ppuDRepVotingThresholdsL
-                        .~ SJust (drepVotingThresholds & dvtCommitteeNormalL .~ threshold)
+                          .~ SJust (drepVotingThresholds & dvtCommitteeNormalL .~ threshold)
                     )
                     SNothing
             pcGai <- submitGovAction paramChange
@@ -211,7 +210,7 @@ paramChangeAffectsProposalsSpec =
                     SNothing
                     ( emptyPParamsUpdate
                         & ppuPoolVotingThresholdsL
-                        .~ SJust (poolVotingThresholds & pvtCommitteeNormalL .~ threshold)
+                          .~ SJust (poolVotingThresholds & pvtCommitteeNormalL .~ threshold)
                     )
                     SNothing
             pcGai <- submitGovAction paramChange
@@ -284,7 +283,7 @@ paramChangeAffectsProposalsSpec =
               parent
               ( emptyPParamsUpdate
                   & ppuDRepVotingThresholdsL
-                  .~ SJust (drepVotingThresholds & dvtPPGovGroupL .~ threshold)
+                    .~ SJust (drepVotingThresholds & dvtPPGovGroupL .~ threshold)
               )
               SNothing
       parentGai <- submitGovAction $ paramChange SNothing largerThreshold
@@ -325,8 +324,7 @@ committeeMinSizeAffectsInFlightProposalsSpec =
       gaiPC <-
         submitParameterChange SNothing $
           emptyPParamsUpdate
-            & ppuCommitteeMinSizeL
-            .~ SJust 2
+            & ppuCommitteeMinSizeL .~ SJust 2
       submitYesVote_ (CommitteeVoter hotCommitteeC) gaiPC
       submitYesVote_ (DRepVoter drepC) gaiPC
       treasury <- getsNES $ nesEsL . esAccountStateL . asTreasuryL
@@ -379,12 +377,8 @@ spoVotesCommitteeUpdates =
         _ <- setupPoolWithStake $ Coin 1_000
         modifyPParams $ \pp ->
           pp
-            & ppPoolVotingThresholdsL
-            . pvtMotionNoConfidenceL
-            .~ 1
-            %! 2
-            & ppDRepVotingThresholdsL
-            .~ def
+            & ppPoolVotingThresholdsL . pvtMotionNoConfidenceL .~ 1 %! 2
+            & ppDRepVotingThresholdsL .~ def
         gai <- submitGovAction $ NoConfidence SNothing
         -- 1 % 4 stake yes; 3 % 4 stake abstain; yes / stake - abstain > 1 % 2
         submitYesVote_ (StakePoolVoter spoK1) gai
@@ -397,12 +391,8 @@ spoVotesCommitteeUpdates =
         _ <- setupPoolWithStake $ Coin 1_000
         modifyPParams $ \pp ->
           pp
-            & ppPoolVotingThresholdsL
-            . pvtCommitteeNormalL
-            .~ 1
-            %! 2
-            & ppDRepVotingThresholdsL
-            .~ def
+            & ppPoolVotingThresholdsL . pvtCommitteeNormalL .~ 1 %! 2
+            & ppDRepVotingThresholdsL .~ def
 
         committeeC <- KeyHashObj <$> freshKeyHash
         gai <-
@@ -460,16 +450,15 @@ votingSpec =
         let ppUpdate =
               emptyPParamsUpdate
                 & ppuPoolVotingThresholdsL
-                .~ SJust
-                  PoolVotingThresholds
-                    { pvtPPSecurityGroup = 1 %! 2
-                    , pvtMotionNoConfidence = 1 %! 2
-                    , pvtHardForkInitiation = 1 %! 2
-                    , pvtCommitteeNormal = 1 %! 2
-                    , pvtCommitteeNoConfidence = 1 %! 2
-                    }
-                & ppuGovActionLifetimeL
-                .~ SJust (EpochInterval 100)
+                  .~ SJust
+                    PoolVotingThresholds
+                      { pvtPPSecurityGroup = 1 %! 2
+                      , pvtMotionNoConfidence = 1 %! 2
+                      , pvtHardForkInitiation = 1 %! 2
+                      , pvtCommitteeNormal = 1 %! 2
+                      , pvtCommitteeNoConfidence = 1 %! 2
+                      }
+                & ppuGovActionLifetimeL .~ SJust (EpochInterval 100)
         gaidThreshold <-
           submitProposal $
             ProposalProcedure
@@ -499,8 +488,7 @@ votingSpec =
                   ParameterChange
                     (SJust (GovPurposeId gaidThreshold))
                     ( emptyPParamsUpdate
-                        & ppuMinFeeAL
-                        .~ SJust newMinFeeA
+                        & ppuMinFeeAL .~ SJust newMinFeeA
                     )
                     SNothing
               , pProcDeposit = pp ^. ppGovActionDepositL
@@ -530,10 +518,10 @@ votingSpec =
           modifyPParams $ \pp ->
             pp
               & ppDRepVotingThresholdsL
-              .~ def
-                { dvtCommitteeNormal = 51 %! 100
-                , dvtCommitteeNoConfidence = 51 %! 100
-                }
+                .~ def
+                  { dvtCommitteeNormal = 51 %! 100
+                  , dvtCommitteeNoConfidence = 51 %! 100
+                  }
           -- Setup DRep delegation #1
           (drep1, KeyHashObj stakingKH1, paymentKP1) <- setupSingleDRep 1_000_000
           -- Setup DRep delegation #2
@@ -560,10 +548,10 @@ votingSpec =
           modifyPParams $ \pp ->
             pp
               & ppDRepVotingThresholdsL
-              .~ def
-                { dvtCommitteeNormal = 51 %! 100
-                , dvtCommitteeNoConfidence = 51 %! 100
-                }
+                .~ def
+                  { dvtCommitteeNormal = 51 %! 100
+                  , dvtCommitteeNoConfidence = 51 %! 100
+                  }
           -- Setup DRep delegation #1
           (drep1, staking1, _) <- setupSingleDRep 1_000_000
           -- Setup DRep delegation #2
@@ -581,12 +569,11 @@ votingSpec =
           -- Add to the rewards of the delegator to this DRep
           -- to barely make the threshold (51 %! 100)
           modifyNES $
-            nesEsL
-              . epochStateUMapL
+            nesEsL . epochStateUMapL
               %~ UM.adjust
                 (\(UM.RDPair r d) -> UM.RDPair (r <> UM.CompactCoin 200_000) d)
                 staking1
-              . UM.RewDepUView
+                . UM.RewDepUView
           passNEpochs 2
           -- The same vote should now successfully ratify the proposal
           getLastEnactedCommittee `shouldReturn` SJust (GovPurposeId addCCGaid)
@@ -595,18 +582,14 @@ votingSpec =
           modifyPParams $ \pp ->
             pp
               & ppDRepVotingThresholdsL
-              .~ def
-                { dvtCommitteeNormal = 51 %! 100
-                , dvtCommitteeNoConfidence = 51 %! 100
-                }
-              & ppGovActionDepositL
-              .~ Coin 1_000_000
-              & ppPoolDepositL
-              .~ Coin 200_000
-              & ppEMaxL
-              .~ EpochInterval 5
-              & ppGovActionLifetimeL
-              .~ EpochInterval 5
+                .~ def
+                  { dvtCommitteeNormal = 51 %! 100
+                  , dvtCommitteeNoConfidence = 51 %! 100
+                  }
+              & ppGovActionDepositL .~ Coin 1_000_000
+              & ppPoolDepositL .~ Coin 200_000
+              & ppEMaxL .~ EpochInterval 5
+              & ppGovActionLifetimeL .~ EpochInterval 5
           -- Setup DRep delegation #1
           (drepKH1, stakingKH1) <- setupDRepWithoutStake
           -- Add rewards to delegation #1
@@ -647,12 +630,11 @@ votingSpec =
           modifyPParams $ \pp ->
             pp
               & ppPoolVotingThresholdsL
-              .~ def
-                { pvtCommitteeNormal = 51 %! 100
-                , pvtCommitteeNoConfidence = 51 %! 100
-                }
-              & ppDRepVotingThresholdsL
-              .~ def
+                .~ def
+                  { pvtCommitteeNormal = 51 %! 100
+                  , pvtCommitteeNoConfidence = 51 %! 100
+                  }
+              & ppDRepVotingThresholdsL .~ def
           -- Setup Pool delegation #1
           (poolKH1, delegatorCPayment1, delegatorCStaking1) <- setupPoolWithStake $ Coin 1_000_000
           -- Setup Pool delegation #2
@@ -684,12 +666,11 @@ votingSpec =
           modifyPParams $ \pp ->
             pp
               & ppPoolVotingThresholdsL
-              .~ def
-                { pvtCommitteeNormal = 51 %! 100
-                , pvtCommitteeNoConfidence = 51 %! 100
-                }
-              & ppDRepVotingThresholdsL
-              .~ def
+                .~ def
+                  { pvtCommitteeNormal = 51 %! 100
+                  , pvtCommitteeNoConfidence = 51 %! 100
+                  }
+              & ppDRepVotingThresholdsL .~ def
           -- Setup Pool delegation #1
           (poolKH1, _, delegatorCStaking1) <- setupPoolWithStake $ Coin 1_000_000
           -- Setup Pool delegation #2
@@ -709,12 +690,11 @@ votingSpec =
           -- Add to the rewards of the delegator to this SPO
           -- to barely make the threshold (51 %! 100)
           modifyNES $
-            nesEsL
-              . epochStateUMapL
+            nesEsL . epochStateUMapL
               %~ UM.adjust
                 (\(UM.RDPair r d) -> UM.RDPair (r <> UM.CompactCoin 200_000) d)
                 delegatorCStaking1
-              . UM.RewDepUView
+                . UM.RewDepUView
           passNEpochs 2
           -- The same vote should now successfully ratify the proposal
           getLastEnactedCommittee `shouldReturn` SJust (GovPurposeId addCCGaid)
@@ -723,20 +703,15 @@ votingSpec =
           modifyPParams $ \pp ->
             pp
               & ppPoolVotingThresholdsL
-              .~ def
-                { pvtCommitteeNormal = 51 %! 100
-                , pvtCommitteeNoConfidence = 51 %! 100
-                }
-              & ppGovActionDepositL
-              .~ Coin 1_000_000
-              & ppPoolDepositL
-              .~ Coin 200_000
-              & ppEMaxL
-              .~ EpochInterval 5
-              & ppGovActionLifetimeL
-              .~ EpochInterval 5
-              & ppDRepVotingThresholdsL
-              .~ def
+                .~ def
+                  { pvtCommitteeNormal = 51 %! 100
+                  , pvtCommitteeNoConfidence = 51 %! 100
+                  }
+              & ppGovActionDepositL .~ Coin 1_000_000
+              & ppPoolDepositL .~ Coin 200_000
+              & ppEMaxL .~ EpochInterval 5
+              & ppGovActionLifetimeL .~ EpochInterval 5
+              & ppDRepVotingThresholdsL .~ def
           -- Setup Pool delegation #1
           (poolKH1, delegatorCStaking1) <- setupPoolWithoutStake
           -- Add rewards to delegation #1

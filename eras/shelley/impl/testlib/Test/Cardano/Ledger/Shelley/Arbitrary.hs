@@ -23,8 +23,6 @@ module Test.Cardano.Ledger.Shelley.Arbitrary (
   ASC (..),
   StakeProportion (..),
   VRFNatVal (..),
-  -- genRequiredTx,
-  -- genRequiredTxRaw,
 ) where
 
 import qualified Cardano.Chain.UTxO as Byron
@@ -33,13 +31,14 @@ import Cardano.Ledger.BaseTypes
 import Cardano.Ledger.Binary (EncCBOR)
 import Cardano.Ledger.Crypto
 import Cardano.Ledger.Shelley (ShelleyEra)
-import Cardano.Ledger.Shelley.API.Mempool (ApplyTxError (..))
-import Cardano.Ledger.Shelley.API.Types (
+import Cardano.Ledger.Shelley.API (
+  ApplyTxError (ApplyTxError),
   MultiSig (..),
   NominalDiffTimeMicro (..),
   ShelleyDelegCert,
   ShelleyGenesis (..),
   ShelleyGenesisStaking (ShelleyGenesisStaking),
+  ShelleyTx (ShelleyTx),
   ShelleyTxBody (ShelleyTxBody),
  )
 import Cardano.Ledger.Shelley.Core
@@ -65,7 +64,6 @@ import Cardano.Ledger.Shelley.Rules (
   ShelleyUtxowPredFailure,
   VotingPeriod,
  )
-import Cardano.Ledger.Shelley.Tx
 import Cardano.Ledger.Shelley.TxAuxData
 import Cardano.Ledger.Shelley.TxCert (
   GenesisDelegCert (..),
@@ -519,17 +517,6 @@ instance
       <*> scale (`div` 15) arbitrary
       <*> arbitrary
 
--- instance
---   ( EraScript era
---   , EraTxOut era
---   , EncCBOR (TxCert era)
---   ) =>
---   Arbitrary (ShelleyRequiredTx era)
---   where
---   arbitrary =
---     ShelleyRequiredTx
---       <$> pure mempty -- arbitrary
-
 genTx ::
   ( EraTx era
   , Arbitrary (TxBody era)
@@ -542,20 +529,6 @@ genTx =
     <$> arbitrary
     <*> resize maxTxWits arbitrary
     <*> arbitrary
-
--- genRequiredTxRaw ::
---   -- EraTx era =>
---   Gen (ShelleyRequiredTxRaw era)
--- genRequiredTxRaw =
---   ShelleyRequiredTxRaw
---     <$> pure mempty -- arbitrary
-
--- genRequiredTx ::
---   EraTx era =>
---   Gen (ShelleyRequiredTx era)
--- genRequiredTx =
---   ShelleyRequiredTx
---     <$> pure mempty -- arbitrary
 
 maxTxWits :: Int
 maxTxWits = 5

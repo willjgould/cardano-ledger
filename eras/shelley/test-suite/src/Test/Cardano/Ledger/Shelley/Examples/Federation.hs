@@ -123,12 +123,7 @@ coreNodeKeysBySchedule pp slot =
     (pp ^. ppDG)
     (activeSlotCoeff testGlobals)
     slot' of
-    Nothing ->
-      error $
-        "coreNodesForSlot: Cannot find keys for slot "
-          <> show slot
-          <> " ... "
-          <> (show $ Map.keysSet (genDelegs @(EraCrypto era)))
+    Nothing -> error $ "coreNodesForSlot: Cannot find keys for slot " <> show slot
     Just NonActiveSlot -> error $ "coreNodesForSlot: Non-active slot " <> show slot
     Just (ActiveSlot gkh) ->
       case Data.List.find (\((_, gk), _) -> hashKey gk == gkh) coreNodes of

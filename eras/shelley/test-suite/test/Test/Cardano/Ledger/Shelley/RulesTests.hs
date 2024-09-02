@@ -5,7 +5,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 module Test.Cardano.Ledger.Shelley.RulesTests (
   chainExamples,
@@ -75,14 +74,14 @@ chainExamples =
   testGroup
     "CHAIN examples"
     [ testCase "empty block" $ testCHAINExample exEmptyBlock
-    -- , poolLifetimeExample
-    -- , twoPoolsExample
-    -- , poolReRegExample
-    -- , updatesExample
-    -- , genesisDelegExample
-    -- , mirExample
-    -- , testMIRTransfer
-    -- , testPoolNetworkId
+    , poolLifetimeExample
+    , twoPoolsExample
+    , poolReRegExample
+    , updatesExample
+    , genesisDelegExample
+    , mirExample
+    , testMIRTransfer
+    , testPoolNetworkId
     ]
 
 multisigExamples :: TestTree

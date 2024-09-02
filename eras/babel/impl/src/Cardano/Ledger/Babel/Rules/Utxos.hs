@@ -31,8 +31,6 @@ import Cardano.Ledger.Alonzo.Plutus.Evaluate (
   lookupPlutusScript,
  )
 import Cardano.Ledger.Alonzo.Rules (
-  AlonzoUtxoEvent (..),
-  AlonzoUtxoPredFailure (..),
   AlonzoUtxosEvent,
   AlonzoUtxosPredFailure,
   TagMismatchDescription (..),
@@ -54,8 +52,6 @@ import Cardano.Ledger.Alonzo.UTxO (
  )
 import Cardano.Ledger.Babbage.Collateral (collAdaBalance, collOuts)
 import Cardano.Ledger.Babbage.Rules (
-  BabbageUTXO,
-  BabbageUtxoPredFailure (..),
   expectScriptsToPass,
  )
 import Cardano.Ledger.Babel.Scripts ()
@@ -256,32 +252,11 @@ instance
   type BaseM (BabelUTXOS era) = Cardano.Ledger.BaseTypes.ShelleyBase
   type Environment (BabelUTXOS era) = UtxoEnv era
   type State (BabelUTXOS era) = UTxOState era
-  type Signal (BabelUTXOS era) = AlonzoTx era
+  type Signal (BabelUTXOS era) = Tx era
   type PredicateFailure (BabelUTXOS era) = BabelUtxosPredFailure era
   type Event (BabelUTXOS era) = BabelUtxosEvent era
 
   transitionRules = [utxosTransition]
-
-instance
-  ( AlonzoEraTx era
-  , AlonzoEraUTxO era
-  , ConwayEraTxBody era
-  , ConwayEraPParams era
-  , EraGov era
-  , EraPlutusContext era
-  , GovState era ~ ConwayGovState era
-  , PredicateFailure (EraRule "UTXOS" era) ~ BabelUtxosPredFailure era
-  , ScriptsNeeded era ~ AlonzoScriptsNeeded era
-  , Signal (BabelUTXOS era) ~ Tx era
-  , EraRule "UTXOS" era ~ BabelUTXOS era
-  , InjectRuleFailure "UTXOS" AlonzoUtxosPredFailure era
-  , InjectRuleEvent "UTXOS" AlonzoUtxosEvent era
-  , InjectRuleEvent "UTXOS" BabelUtxosEvent era
-  ) =>
-  Embed (BabelUTXOS era) (BabbageUTXO era)
-  where
-  wrapFailed = AlonzoInBabbageUtxoPredFailure . UtxosFailure
-  wrapEvent = UtxosEvent
 
 utxosTransition ::
   forall era.

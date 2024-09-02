@@ -18,7 +18,6 @@ module Cardano.Ledger.Conway.Rules.Ledger (
   ConwayLEDGER,
   ConwayLedgerPredFailure (..),
   ConwayLedgerEvent (..),
-  ledgerTransition,
 ) where
 
 import Cardano.Crypto.DSIGN (DSIGNAlgorithm (..))
@@ -399,9 +398,7 @@ ledgerTransition = do
               )
         let utxoState' =
               utxoState
-                & utxosGovStateL
-                . proposalsGovStateL
-                .~ proposalsState
+                & utxosGovStateL . proposalsGovStateL .~ proposalsState
         pure (utxoState', certStateAfterCERTS)
       else pure (utxoState, certState)
 

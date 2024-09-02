@@ -149,10 +149,8 @@ translateToShelleyLedgerState transCtxt epochNo cvs =
         , esLState = ledgerState
         , esNonMyopic = def
         }
-        & prevPParamsEpochStateL
-        .~ pparams
-        & curPParamsEpochStateL
-        .~ pparams
+        & prevPParamsEpochStateL .~ pparams
+        & curPParamsEpochStateL .~ pparams
 
     utxoByron :: Byron.UTxO
     utxoByron = Byron.cvsUtxo cvs

@@ -46,27 +46,21 @@ import GHC.Generics (Generic)
 import Lens.Micro ((^.))
 import NoThunks.Class (NoThunks (..))
 
-{- CIP-0118#block-structure-0
-
-  Firstly, we need to change the structure of the block. `TxZones` is an associated
-  type on `EraSegWits`. It replaces `TxSeq`.
-
-  Jump to CIP-0118#block-structure-1 to continue... -}
 data Block h era
-  = Block' !h !(TxZones era) BSL.ByteString
+  = Block' !h !(TxSeq era) BSL.ByteString
   deriving (Generic)
 
 deriving stock instance
-  (Era era, Show (TxZones era), Show h) =>
+  (Era era, Show (TxSeq era), Show h) =>
   Show (Block h era)
 
 deriving stock instance
-  (Era era, Eq (TxZones era), Eq h) =>
+  (Era era, Eq (TxSeq era), Eq h) =>
   Eq (Block h era)
 
 deriving anyclass instance
   ( Era era
-  , NoThunks (TxZones era)
+  , NoThunks (TxSeq era)
   , NoThunks h
   ) =>
   NoThunks (Block h era)
@@ -74,11 +68,11 @@ deriving anyclass instance
 pattern Block ::
   forall era h.
   ( Era era
-  , EncCBORGroup (TxZones era)
+  , EncCBORGroup (TxSeq era)
   , EncCBOR h
   ) =>
   h ->
-  TxZones era ->
+  TxSeq era ->
   Block h era
 pattern Block h txns <-
   Block' h txns _
@@ -95,7 +89,7 @@ pattern Block h txns <-
 -- we're using a 'BHeaderView' in place of the concrete header.
 pattern UnserialisedBlock ::
   h ->
-  TxZones era ->
+  TxSeq era ->
   Block h era
 pattern UnserialisedBlock h txns <- Block' h txns _
 
@@ -108,7 +102,7 @@ pattern UnserialisedBlock h txns <- Block' h txns _
 --   regarded with suspicion.
 pattern UnsafeUnserialisedBlock ::
   h ->
-  TxZones era ->
+  TxSeq era ->
   Block h era
 pattern UnsafeUnserialisedBlock h txns <-
   Block' h txns _
@@ -147,7 +141,7 @@ bheader ::
   h
 bheader (Block' bh _ _) = bh
 
-bbody :: Block h era -> TxZones era
+bbody :: Block h era -> TxSeq era
 bbody (Block' _ txs _) = txs
 
 -- | The validity of any individual block depends only on a subset
@@ -166,7 +160,7 @@ neededTxInsForBlock ::
   Set (TxIn (EraCrypto era))
 neededTxInsForBlock (Block' _ txsSeq _) = Set.filter isNotNewInput allTxIns
   where
-    txBodies = map (^. bodyTxL) . toList $ flatten txsSeq
+    txBodies = map (^. bodyTxL) $ toList $ fromTxSeq txsSeq
     allTxIns = Set.unions $ map (^. allInputsTxBodyF) txBodies
     newTxIds = Set.fromList $ map txid txBodies
     isNotNewInput (TxIn txID _) = txID `Set.notMember` newTxIds

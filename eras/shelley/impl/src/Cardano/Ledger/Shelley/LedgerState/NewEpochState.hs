@@ -126,10 +126,8 @@ updateNES
         { nesBcur = bcur
         , nesEs =
             EpochState acnt ls ss nm
-              & curPParamsEpochStateL
-              .~ pp
-              & prevPParamsEpochStateL
-              .~ pr
+              & curPParamsEpochStateL .~ pp
+              & prevPParamsEpochStateL .~ pr
         }
 
 returnRedeemAddrsToReserves ::

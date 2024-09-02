@@ -132,8 +132,7 @@ tests =
 
 alonzoBBODYexamplesP ::
   forall era.
-  ( TxStructure era ~ StrictSeq.StrictSeq
-  , HasTokens era
+  ( HasTokens era
   , PostShelley era
   , Value era ~ MaryValue (EraCrypto era)
   , EraSegWits era
@@ -191,8 +190,7 @@ initialBBodyState pf utxo =
         }
 
 testAlonzoBlock ::
-  ( TxStructure era ~ StrictSeq.StrictSeq
-  , GoodCrypto (EraCrypto era)
+  ( GoodCrypto (EraCrypto era)
   , HasTokens era
   , Scriptic era
   , EraSegWits era
@@ -711,7 +709,7 @@ coldKeys = KeyPair vk sk
 
 makeNaiveBlock ::
   forall era.
-  (TxStructure era ~ StrictSeq.StrictSeq, EraSegWits era) =>
+  EraSegWits era =>
   [Tx era] ->
   Block (BHeaderView (EraCrypto era)) era
 makeNaiveBlock txs = UnsafeUnserialisedBlock bhView txSeq
@@ -721,10 +719,10 @@ makeNaiveBlock txs = UnsafeUnserialisedBlock bhView txSeq
         { bhviewID = hashKey (vKey coldKeys)
         , bhviewBSize = fromIntegral $ bBodySize (ProtVer (eraProtVerLow @era) 0) txSeq
         , bhviewHSize = 0
-        , bhviewBHash = hashTxZones txSeq
+        , bhviewBHash = hashTxSeq txSeq
         , bhviewSlot = SlotNo 0
         }
-    txSeq = toTxZones $ StrictSeq.fromList txs
+    txSeq = toTxSeq $ StrictSeq.fromList txs
 
 scriptStakeCredFail :: forall era. Scriptic era => Proof era -> StakeCredential (EraCrypto era)
 scriptStakeCredFail pf = ScriptHashObj (alwaysFailsHash 1 pf)

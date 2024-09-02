@@ -26,25 +26,25 @@ import Cardano.Crypto.Hash.Class (Hash)
 import Cardano.Ledger.Address (RewardAccount (..))
 import Cardano.Ledger.Alonzo.Rules (
   AlonzoUtxosPredFailure,
-  AlonzoUtxowEvent,
  )
 import Cardano.Ledger.Alonzo.Scripts (AlonzoScript)
-import Cardano.Ledger.Alonzo.UTxO (AlonzoScriptsNeeded (..))
+import Cardano.Ledger.Alonzo.UTxO (AlonzoScriptsNeeded)
 import Cardano.Ledger.Babbage.Rules (
   BabbageUtxoPredFailure,
  )
 import Cardano.Ledger.Babbage.Tx (IsValid (..))
-import Cardano.Ledger.Babbage.TxBody (BabbageTxOut (..))
+import Cardano.Ledger.Babbage.TxOut (BabbageTxOut)
 import Cardano.Ledger.Babel.Era (
   BabelEra,
   BabelLEDGER,
-  BabelUTXOW,
+  BabelSWAPS,
  )
 import Cardano.Ledger.Babel.Rules.Cert ()
 import Cardano.Ledger.Babel.Rules.Certs ()
 import Cardano.Ledger.Babel.Rules.Deleg ()
 import Cardano.Ledger.Babel.Rules.Gov ()
 import Cardano.Ledger.Babel.Rules.GovCert ()
+import Cardano.Ledger.Babel.Rules.Swaps (BabelSwapsEvent, BabelSwapsPredFailure)
 import Cardano.Ledger.Babel.Rules.Utxo (BabelUtxoPredFailure)
 import Cardano.Ledger.Babel.Rules.Utxos (BabelUtxosPredFailure)
 import Cardano.Ledger.Babel.Rules.Utxow (BabelUtxowPredFailure)
@@ -104,7 +104,7 @@ import Cardano.Ledger.Shelley.Rules.Reports (showTxCerts)
 import Cardano.Ledger.Slot (epochInfoEpoch)
 import Cardano.Ledger.UMap (UView (..), dRepMap)
 import qualified Cardano.Ledger.UMap as UMap
-import Cardano.Ledger.UTxO (EraUTxO (..))
+import Cardano.Ledger.UTxO (EraUTxO (ScriptsNeeded))
 import Control.DeepSeq (NFData)
 import Control.Monad (when)
 import Control.Monad.Trans.Reader (asks)
@@ -131,7 +131,7 @@ import Lens.Micro as L
 import NoThunks.Class (NoThunks (..))
 
 data BabelLedgerPredFailure era
-  = BabelUtxowFailure (PredicateFailure (EraRule "UTXOW" era))
+  = BabelZoneFailure (PredicateFailure (EraRule "SWAPS" era))
   | BabelCertsFailure (PredicateFailure (EraRule "CERTS" era))
   | BabelGovFailure (PredicateFailure (EraRule "GOV" era))
   | BabelWdrlNotDelegatedToDRep (Set (Credential 'Staking (EraCrypto era)))
@@ -148,26 +148,29 @@ type instance EraRuleEvent "LEDGER" (BabelEra c) = BabelLedgerEvent (BabelEra c)
 
 instance InjectRuleFailure "LEDGER" BabelLedgerPredFailure (BabelEra c)
 
+instance InjectRuleFailure "LEDGER" BabelSwapsPredFailure (BabelEra c) where
+  injectFailure = BabelZoneFailure
+
 instance InjectRuleFailure "LEDGER" BabelUtxowPredFailure (BabelEra c) where
-  injectFailure = BabelUtxowFailure . injectFailure
+  injectFailure = BabelZoneFailure . injectFailure
 
 instance InjectRuleFailure "LEDGER" ShelleyUtxowPredFailure (BabelEra c) where
-  injectFailure = BabelUtxowFailure . injectFailure
+  injectFailure = BabelZoneFailure . injectFailure
 
 instance InjectRuleFailure "LEDGER" BabelUtxoPredFailure (BabelEra c) where
-  injectFailure = BabelUtxowFailure . injectFailure
+  injectFailure = BabelZoneFailure . injectFailure
 
 instance InjectRuleFailure "LEDGER" BabbageUtxoPredFailure (BabelEra c) where
-  injectFailure = BabelUtxowFailure . injectFailure
+  injectFailure = BabelZoneFailure . injectFailure
 
 instance InjectRuleFailure "LEDGER" ShelleyUtxoPredFailure (BabelEra c) where
-  injectFailure = BabelUtxowFailure . injectFailure
+  injectFailure = BabelZoneFailure . injectFailure
 
 instance InjectRuleFailure "LEDGER" BabelUtxosPredFailure (BabelEra c) where
-  injectFailure = BabelUtxowFailure . injectFailure
+  injectFailure = BabelZoneFailure . injectFailure
 
 instance InjectRuleFailure "LEDGER" AlonzoUtxosPredFailure (BabelEra c) where
-  injectFailure = BabelUtxowFailure . injectFailure
+  injectFailure = BabelZoneFailure . injectFailure
 
 instance InjectRuleFailure "LEDGER" ConwayCertsPredFailure (BabelEra c) where
   injectFailure = BabelCertsFailure
@@ -189,7 +192,7 @@ instance InjectRuleFailure "LEDGER" ConwayGovPredFailure (BabelEra c) where
 
 deriving instance
   ( Era era
-  , Eq (PredicateFailure (EraRule "UTXOW" era))
+  , Eq (PredicateFailure (EraRule "SWAPS" era))
   , Eq (PredicateFailure (EraRule "CERTS" era))
   , Eq (PredicateFailure (EraRule "GOV" era))
   ) =>
@@ -197,7 +200,7 @@ deriving instance
 
 deriving instance
   ( Era era
-  , Show (PredicateFailure (EraRule "UTXOW" era))
+  , Show (PredicateFailure (EraRule "SWAPS" era))
   , Show (PredicateFailure (EraRule "CERTS" era))
   , Show (PredicateFailure (EraRule "GOV" era))
   ) =>
@@ -205,7 +208,7 @@ deriving instance
 
 instance
   ( Era era
-  , NoThunks (PredicateFailure (EraRule "UTXOW" era))
+  , NoThunks (PredicateFailure (EraRule "SWAPS" era))
   , NoThunks (PredicateFailure (EraRule "CERTS" era))
   , NoThunks (PredicateFailure (EraRule "GOV" era))
   ) =>
@@ -213,7 +216,7 @@ instance
 
 instance
   ( Era era
-  , NFData (PredicateFailure (EraRule "UTXOW" era))
+  , NFData (PredicateFailure (EraRule "SWAPS" era))
   , NFData (PredicateFailure (EraRule "CERTS" era))
   , NFData (PredicateFailure (EraRule "GOV" era))
   ) =>
@@ -221,7 +224,7 @@ instance
 
 instance
   ( Era era
-  , EncCBOR (PredicateFailure (EraRule "UTXOW" era))
+  , EncCBOR (PredicateFailure (EraRule "SWAPS" era))
   , EncCBOR (PredicateFailure (EraRule "CERTS" era))
   , EncCBOR (PredicateFailure (EraRule "GOV" era))
   ) =>
@@ -229,7 +232,7 @@ instance
   where
   encCBOR =
     encode . \case
-      BabelUtxowFailure x -> Sum (BabelUtxowFailure @era) 1 !> To x
+      BabelZoneFailure x -> Sum (BabelZoneFailure @era) 1 !> To x
       BabelCertsFailure x -> Sum (BabelCertsFailure @era) 2 !> To x
       BabelGovFailure x -> Sum (BabelGovFailure @era) 3 !> To x
       BabelWdrlNotDelegatedToDRep x ->
@@ -239,7 +242,7 @@ instance
 
 instance
   ( Era era
-  , DecCBOR (PredicateFailure (EraRule "UTXOW" era))
+  , DecCBOR (PredicateFailure (EraRule "SWAPS" era))
   , DecCBOR (PredicateFailure (EraRule "CERTS" era))
   , DecCBOR (PredicateFailure (EraRule "GOV" era))
   ) =>
@@ -247,7 +250,7 @@ instance
   where
   decCBOR =
     decode $ Summands "BabelLedgerPredFailure" $ \case
-      1 -> SumD BabelUtxowFailure <! From
+      1 -> SumD BabelZoneFailure <! From
       2 -> SumD BabelCertsFailure <! From
       3 -> SumD BabelGovFailure <! From
       4 -> SumD BabelWdrlNotDelegatedToDRep <! From
@@ -255,21 +258,21 @@ instance
       n -> Invalid n
 
 data BabelLedgerEvent era
-  = UtxowEvent (Event (EraRule "UTXOW" era))
+  = ZoneEvent (Event (EraRule "SWAPS" era))
   | CertsEvent (Event (EraRule "CERTS" era))
   | GovEvent (Event (EraRule "GOV" era))
   deriving (Generic)
 
 deriving instance
   ( Eq (Event (EraRule "CERTS" era))
-  , Eq (Event (EraRule "UTXOW" era))
+  , Eq (Event (EraRule "SWAPS" era))
   , Eq (Event (EraRule "GOV" era))
   ) =>
   Eq (BabelLedgerEvent era)
 
 instance
   ( NFData (Event (EraRule "CERTS" era))
-  , NFData (Event (EraRule "UTXOW" era))
+  , NFData (Event (EraRule "SWAPS" era))
   , NFData (Event (EraRule "GOV" era))
   ) =>
   NFData (BabelLedgerEvent era)
@@ -279,16 +282,16 @@ instance
   , ConwayEraTxBody era
   , ConwayEraGov era
   , GovState era ~ ConwayGovState era
-  , Embed (EraRule "UTXOW" era) (BabelLEDGER era)
+  , Embed (EraRule "SWAPS" era) (BabelLEDGER era)
   , Embed (EraRule "GOV" era) (BabelLEDGER era)
   , Embed (EraRule "CERTS" era) (BabelLEDGER era)
-  , State (EraRule "UTXOW" era) ~ UTxOState era
+  , State (EraRule "SWAPS" era) ~ LedgerState era
   , State (EraRule "CERTS" era) ~ CertState era
   , State (EraRule "GOV" era) ~ Proposals era
-  , Environment (EraRule "UTXOW" era) ~ UtxoEnv era
+  , Environment (EraRule "SWAPS" era) ~ UtxoEnv era
   , Environment (EraRule "CERTS" era) ~ CertsEnv era
   , Environment (EraRule "GOV" era) ~ GovEnv era
-  , Signal (EraRule "UTXOW" era) ~ Tx era
+  , Signal (EraRule "SWAPS" era) ~ Tx era
   , Signal (EraRule "CERTS" era) ~ Seq (TxCert era)
   , Signal (EraRule "GOV" era) ~ GovProcedures era
   ) =>
@@ -323,16 +326,16 @@ ledgerTransition ::
   , State (someLEDGER era) ~ LedgerState era
   , Environment (someLEDGER era) ~ LedgerEnv era
   , PredicateFailure (someLEDGER era) ~ BabelLedgerPredFailure era
-  , Embed (EraRule "UTXOW" era) (someLEDGER era)
+  , Embed (EraRule "SWAPS" era) (someLEDGER era)
   , Embed (EraRule "GOV" era) (someLEDGER era)
   , Embed (EraRule "CERTS" era) (someLEDGER era)
-  , State (EraRule "UTXOW" era) ~ UTxOState era
+  , State (EraRule "SWAPS" era) ~ LedgerState era
   , State (EraRule "CERTS" era) ~ CertState era
   , State (EraRule "GOV" era) ~ Proposals era
-  , Environment (EraRule "UTXOW" era) ~ UtxoEnv era
+  , Environment (EraRule "SWAPS" era) ~ UtxoEnv era
   , Environment (EraRule "GOV" era) ~ GovEnv era
   , Environment (EraRule "CERTS" era) ~ CertsEnv era
-  , Signal (EraRule "UTXOW" era) ~ Tx era
+  , Signal (EraRule "SWAPS" era) ~ Tx era
   , Signal (EraRule "CERTS" era) ~ Seq (TxCert era)
   , Signal (EraRule "GOV" era) ~ GovProcedures era
   , BaseM (someLEDGER era) ~ ShelleyBase
@@ -405,19 +408,41 @@ ledgerTransition = do
           (utxoState', certStateAfterCERTS)
       else pure (utxoState, certState)
 
-  utxoState'' <-
-    trans @(EraRule "UTXOW" era) $
-      TRC
-        -- Pass to UTXOW the unmodified CertState in its Environment,
-        -- so it can process refunds of deposits for deregistering
-        -- stake credentials and DReps. The modified CertState
-        -- (certStateAfterCERTS) has these already removed from its
-        -- UMap.
-        ( UtxoEnv @era slot pp certState
-        , utxoState'
-        , tx
-        )
-  pure $ LedgerState utxoState'' certStateAfterCERTS
+  trans @(EraRule "SWAPS" era) $
+    TRC
+      -- Pass to UTXOW the unmodified CertState in its Environment,
+      -- so it can process refunds of deposits for deregistering
+      -- stake credentials and DReps. The modified CertState
+      -- (certStateAfterCERTS) has these already removed from its
+      -- UMap.
+      ( UtxoEnv @era slot pp certState
+      , LedgerState utxoState' certStateAfterCERTS
+      , tx
+      )
+
+instance
+  ( Signable (DSIGN (EraCrypto era)) (Hash (HASH (EraCrypto era)) EraIndependentTxBody)
+  , BaseM (BabelSWAPS era) ~ ShelleyBase
+  , AlonzoEraTx era
+  , EraUTxO era
+  , BabbageEraTxBody era
+  , Embed (EraRule "UTXOW" era) (BabelSWAPS era)
+  , State (EraRule "UTXOW" era) ~ UTxOState era
+  , Environment (EraRule "UTXOW" era) ~ UtxoEnv era
+  , Script era ~ AlonzoScript era
+  , TxOut era ~ BabbageTxOut era
+  , ScriptsNeeded era ~ AlonzoScriptsNeeded era
+  , Signal (EraRule "UTXOW" era) ~ Tx era
+  , PredicateFailure (EraRule "SWAPS" era) ~ BabelSwapsPredFailure era
+  , Event (EraRule "SWAPS" era) ~ BabelSwapsEvent era
+  , STS (BabelSWAPS era)
+  , PredicateFailure (BabelSWAPS era) ~ BabelSwapsPredFailure era
+  , Event (BabelSWAPS era) ~ BabelSwapsEvent era
+  ) =>
+  Embed (BabelSWAPS era) (BabelLEDGER era)
+  where
+  wrapFailed = BabelZoneFailure
+  wrapEvent = ZoneEvent
 
 instance
   ( EraTx era
@@ -449,30 +474,6 @@ instance
   where
   wrapFailed = BabelGovFailure
   wrapEvent = GovEvent
-
-instance
-  ( Signable (DSIGN (EraCrypto era)) (Hash (HASH (EraCrypto era)) EraIndependentTxBody)
-  , BaseM (BabelUTXOW era) ~ ShelleyBase
-  , AlonzoEraTx era
-  , EraUTxO era
-  , BabbageEraTxBody era
-  , Embed (EraRule "UTXO" era) (BabelUTXOW era)
-  , State (EraRule "UTXO" era) ~ UTxOState era
-  , Environment (EraRule "UTXO" era) ~ UtxoEnv era
-  , Script era ~ AlonzoScript era
-  , TxOut era ~ BabbageTxOut era
-  , ScriptsNeeded era ~ AlonzoScriptsNeeded era
-  , Signal (EraRule "UTXO" era) ~ Tx era
-  , PredicateFailure (EraRule "UTXOW" era) ~ BabelUtxowPredFailure era
-  , Event (EraRule "UTXOW" era) ~ AlonzoUtxowEvent era
-  , STS (BabelUTXOW era)
-  , PredicateFailure (BabelUTXOW era) ~ BabelUtxowPredFailure era
-  , Event (BabelUTXOW era) ~ AlonzoUtxowEvent era
-  ) =>
-  Embed (BabelUTXOW era) (BabelLEDGER era)
-  where
-  wrapFailed = BabelUtxowFailure
-  wrapEvent = UtxowEvent
 
 -- Helpers
 

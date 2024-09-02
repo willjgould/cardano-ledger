@@ -1,16 +1,5 @@
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Cardano.Ledger.Babbage.Tx (
@@ -36,7 +25,6 @@ import Cardano.Ledger.Babbage.TxWits ()
 import Cardano.Ledger.Core
 import Cardano.Ledger.Crypto
 import Control.Arrow (left)
-import qualified Data.Sequence.Strict as StrictSeq
 
 newtype BabbageTxUpgradeError
   = BTUEBodyUpgradeError BabbageTxBodyUpgradeError
@@ -81,10 +69,8 @@ instance Crypto c => AlonzoEraTx (BabbageEra c) where
   {-# INLINE isValidTxL #-}
 
 instance Crypto c => EraSegWits (BabbageEra c) where
-  type TxStructure (BabbageEra c) = StrictSeq.StrictSeq
-  type TxZones (BabbageEra c) = AlonzoTxSeq (BabbageEra c)
-  fromTxZones = txSeqTxns
-  toTxZones = AlonzoTxSeq
-  flatten = fromTxZones
-  hashTxZones = hashAlonzoTxSeq
+  type TxSeq (BabbageEra c) = AlonzoTxSeq (BabbageEra c)
+  fromTxSeq = txSeqTxns
+  toTxSeq = AlonzoTxSeq
+  hashTxSeq = hashAlonzoTxSeq
   numSegComponents = 4

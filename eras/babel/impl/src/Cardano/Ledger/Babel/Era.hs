@@ -2,17 +2,16 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module Cardano.Ledger.Babel.Era (
-  BabelBBODY,
   BabelEra,
   BabelLEDGERS,
   BabelUTXO,
   BabelUTXOS,
   BabelUTXOW,
   BabelLEDGER,
-  BabelZONE,
-  BabelZONES,
+  BabelSWAPS,
 ) where
 
+import Cardano.Ledger.Alonzo.Rules (AlonzoBBODY)
 import Cardano.Ledger.Conway (ConwayEra)
 import Cardano.Ledger.Conway.Rules (
   ConwayCERT,
@@ -80,13 +79,9 @@ data BabelUTXOS era
 
 type instance EraRule "UTXOS" (BabelEra c) = BabelUTXOS (BabelEra c)
 
-data BabelZONES era
+data BabelSWAPS era
 
-type instance EraRule "ZONES" (BabelEra c) = BabelZONES (BabelEra c)
-
-data BabelZONE era
-
-type instance EraRule "ZONE" (BabelEra c) = BabelZONE (BabelEra c)
+type instance EraRule "SWAPS" (BabelEra c) = BabelSWAPS (BabelEra c)
 
 data BabelLEDGER era
 
@@ -104,9 +99,13 @@ data BabelUTXO era
 
 type instance EraRule "UTXO" (BabelEra c) = BabelUTXO (BabelEra c)
 
-data BabelBBODY era
+-- data BabelBBODY era
 
-type instance EraRule "BBODY" (BabelEra c) = BabelBBODY (BabelEra c)
+-- type instance EraRule "BBODY" (BabelEra c) = BabelBBODY (BabelEra c)
+
+-- Rules inherited from Alonzo
+
+type instance EraRule "BBODY" (BabelEra c) = AlonzoBBODY (BabelEra c)
 
 -- Rules inherited from Shelley
 

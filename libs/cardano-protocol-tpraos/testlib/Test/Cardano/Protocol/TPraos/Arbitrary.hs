@@ -37,7 +37,6 @@ import Cardano.Protocol.TPraos.OCert (KESPeriod (KESPeriod), OCert (..), OCertSi
 import Cardano.Protocol.TPraos.Rules.Overlay (OBftSlot)
 import Cardano.Protocol.TPraos.Rules.Prtcl (PrtclState)
 import Cardano.Protocol.TPraos.Rules.Tickn (TicknState)
-import Data.Sequence.Strict (StrictSeq, singleton)
 import Generic.Random (genericArbitraryU)
 import Test.Cardano.Ledger.Binary.Arbitrary ()
 import Test.Cardano.Ledger.Common
@@ -133,8 +132,7 @@ instance Crypto c => Arbitrary (OCert c) where
 deriving newtype instance Arbitrary KESPeriod
 
 instance
-  ( TxStructure era ~ StrictSeq
-  , Era era
+  ( Era era
   , c ~ EraCrypto era
   , EraSegWits era
   , KES.Signable (KES c) ~ SignableRepresentation
@@ -143,12 +141,11 @@ instance
   ) =>
   Arbitrary (Block (BHeader c) era)
   where
-  arbitrary = Block <$> arbitrary <*> (toTxZones . singleton <$> arbitrary)
+  arbitrary = Block <$> arbitrary <*> (toTxSeq <$> arbitrary)
 
 -- | Use supplied keys to generate a Block.
 genBlock ::
-  ( TxStructure era ~ StrictSeq
-  , DSIGN.Signable (DSIGN c) (OCertSignable c)
+  ( DSIGN.Signable (DSIGN c) (OCertSignable c)
   , VRF.Signable (VRF c) Seed
   , KES.Signable (KES c) (BHBody c)
   , EraSegWits era
@@ -157,7 +154,7 @@ genBlock ::
   ) =>
   [AllIssuerKeys c r] ->
   Gen (Block (BHeader c) era)
-genBlock aiks = Block <$> genBHeader aiks <*> (toTxZones <$> arbitrary)
+genBlock aiks = Block <$> genBHeader aiks <*> (toTxSeq <$> arbitrary)
 
 -- | For some purposes, a totally random block generator may not be suitable.
 -- There are tests in the ouroboros-network repository, for instance, that
@@ -169,8 +166,7 @@ genBlock aiks = Block <$> genBHeader aiks <*> (toTxZones <$> arbitrary)
 -- This generator uses 'mkBlock' provide more coherent blocks.
 genCoherentBlock ::
   forall era r.
-  ( TxStructure era ~ StrictSeq
-  , EraSegWits era
+  ( EraSegWits era
   , Arbitrary (Tx era)
   , KES.Signable (KES (EraCrypto era)) ~ SignableRepresentation
   , DSIGN.Signable (DSIGN (EraCrypto era)) ~ SignableRepresentation

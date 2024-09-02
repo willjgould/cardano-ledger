@@ -43,7 +43,8 @@ import qualified Cardano.Ledger.Alonzo.Rules as Alonzo (
   validateTooManyCollateralInputs,
   validateWrongNetworkInTxBody,
  )
-import Cardano.Ledger.Alonzo.Tx (AlonzoTx (..))
+import Cardano.Ledger.Alonzo.Tx (AlonzoTx)
+import Cardano.Ledger.Alonzo.TxSeq (AlonzoTxSeq)
 import Cardano.Ledger.Alonzo.TxWits (nullRedeemers)
 import Cardano.Ledger.Babbage (BabbageEra)
 import Cardano.Ledger.Babbage.Collateral (collAdaBalance)
@@ -325,7 +326,7 @@ instance
 -- UTXO
 -- The UTXO rule is updated by :
 
--- removing the produced = consumed check (this is moved to the ZONE rule)
+-- removing the produced = consumed check (this is moved to the SWAPS rule)
 -- changing the minfee calculation to no longer include + pp .b term
 -- in feesOK, the collateral must now include + pp .b, so that
 -- (coin bal * 100) ≥ᵇ (txfee * pp .collateralPercentage) + pp .b
@@ -337,7 +338,7 @@ The only difference here is that the transaction max size check:
 txsize tx ≤ maxTxSize pp
 runTestOnSignal $ Shelley.validateMaxTxSizeUTxO pp tx
 
-...has been moved to the ZONE rule (CIP-0118#ZONE-rule). This is because we now
+...has been moved to the SWAPS rule (CIP-0118#SWAPS-rule). This is because we now
 need to ensure that the size of all transactions within a zone is within the max
 size of a single transaction, and, naturally, if that condition is satisfied, it
 must also be implicitly satisfied for all individual transactions.
@@ -349,14 +350,13 @@ utxoTransition ::
   forall era.
   ( EraUTxO era
   , AlonzoEraTxWits era
-  , Tx era ~ AlonzoTx era
   , InjectRuleFailure "UTXO" ShelleyUtxoPredFailure era
   , InjectRuleFailure "UTXO" AllegraUtxoPredFailure era
   , InjectRuleFailure "UTXO" AlonzoUtxoPredFailure era
   , InjectRuleFailure "UTXO" BabbageUtxoPredFailure era
   , Environment (EraRule "UTXO" era) ~ Shelley.UtxoEnv era
   , State (EraRule "UTXO" era) ~ UTxOState era
-  , Signal (EraRule "UTXO" era) ~ AlonzoTx era
+  , Signal (EraRule "UTXO" era) ~ Tx era
   , BaseM (EraRule "UTXO" era) ~ ShelleyBase
   , STS (EraRule "UTXO" era)
   , -- In this function we we call the UTXOS rule, so we need some assumptions
@@ -373,7 +373,7 @@ utxoTransition = do
   let utxo = utxosUtxo utxos
 
   {-   txb := txbody tx   -}
-  let txBody = body tx
+  let txBody = tx ^. bodyTxL
       allInputs = txBody ^. allInputsTxBodyF
       refInputs :: Set (TxIn (EraCrypto era))
       refInputs = txBody ^. referenceInputsTxBodyL
@@ -428,10 +428,10 @@ utxoTransition = do
   runTestOnSignal $ Alonzo.validateWrongNetworkInTxBody netId txBody
 
   {- txsize tx ≤ maxTxSize pp -}
-  -- We've moved this to the ZONE rule. See https://github.com/IntersectMBO/formal-ledger-specifications/commit/c3e18ac1d3da92dd4894bbc32057a143f9720f52#diff-5f67369ed62c0dab01e13a73f072b664ada237d094bbea4582365264dd163bf9
+  -- We've moved this to the SWAPS rule. See https://github.com/IntersectMBO/formal-ledger-specifications/commit/c3e18ac1d3da92dd4894bbc32057a143f9720f52#diff-5f67369ed62c0dab01e13a73f072b664ada237d094bbea4582365264dd163bf9
   -- runTestOnSignal $ Shelley.validateMaxTxSizeUTxO pp tx
 
-  -- Don't need this either since we're applying it to the whole zone in ZONE
+  -- Don't need this either since we're applying it to the whole zone in SWAPS
   {-   totExunits tx ≤ maxTxExUnits pp    -}
   -- runTest $ Alonzo.validateExUnitsTooBigUTxO pp tx
 
@@ -472,7 +472,6 @@ instance
   , EraUTxO era
   , ConwayEraTxBody era
   , AlonzoEraTxWits era
-  , Tx era ~ AlonzoTx era
   , EraRule "UTXO" era ~ BabelUTXO era
   , InjectRuleFailure "UTXO" ShelleyUtxoPredFailure era
   , InjectRuleFailure "UTXO" AllegraUtxoPredFailure era
@@ -489,7 +488,7 @@ instance
   STS (BabelUTXO era)
   where
   type State (BabelUTXO era) = UTxOState era
-  type Signal (BabelUTXO era) = AlonzoTx era
+  type Signal (BabelUTXO era) = Tx era
   type Environment (BabelUTXO era) = Shelley.UtxoEnv era
   type BaseM (BabelUTXO era) = ShelleyBase
   type PredicateFailure (BabelUTXO era) = BabelUtxoPredFailure era

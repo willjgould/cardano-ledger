@@ -45,7 +45,6 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Sequence (Seq)
-import qualified Data.Sequence.Strict as StrictSeq
 import qualified Data.Set as Set
 import Lens.Micro ((^.))
 import Lens.Micro.Extras (view)
@@ -90,8 +89,7 @@ type TxGen era =
 -- | Generate a valid block.
 genBlock ::
   forall era.
-  ( TxStructure era ~ StrictSeq.StrictSeq
-  , MinLEDGER_STS era
+  ( MinLEDGER_STS era
   , ApplyBlock era
   , Mock (EraCrypto era)
   , GetLedgerView era
@@ -111,8 +109,7 @@ genBlock ge = genBlockWithTxGen genTxs ge
 
 genBlockWithTxGen ::
   forall era.
-  ( TxStructure era ~ StrictSeq.StrictSeq
-  , Mock (EraCrypto era)
+  ( Mock (EraCrypto era)
   , GetLedgerView era
   , ApplyBlock era
   , EraGen era

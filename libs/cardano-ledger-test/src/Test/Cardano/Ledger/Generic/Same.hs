@@ -623,7 +623,7 @@ sameAlonzoTxSeq proof (AlonzoTxSeq ss1) (AlonzoTxSeq ss2) =
   where
     f n t1 t2 = SomeM (show n) (sameTx proof) t1 t2
 
-sameTxSeq :: Reflect era => Proof era -> TxZones era -> TxZones era -> [(String, Maybe PDoc)]
+sameTxSeq :: Reflect era => Proof era -> TxSeq era -> TxSeq era -> [(String, Maybe PDoc)]
 sameTxSeq proof@Shelley x y = sameShelleyTxSeq proof x y
 sameTxSeq proof@Allegra x y = sameShelleyTxSeq proof x y
 sameTxSeq proof@Mary x y = sameShelleyTxSeq proof x y

@@ -33,13 +33,15 @@ library
         Cardano.Ledger.Babel.Era
         Cardano.Ledger.Babel.Genesis
         Cardano.Ledger.Babel.PParams
+        Cardano.Ledger.Babel.Scripts
+        Cardano.Ledger.Babel.Swap
         Cardano.Ledger.Babel.Tx
         Cardano.Ledger.Babel.TxBody
         Cardano.Ledger.Babel.TxInfo
+        Cardano.Ledger.Babel.TxSeq
         Cardano.Ledger.Babel.TxWits
         Cardano.Ledger.Babel.Transition
         Cardano.Ledger.Babel.Translation
-        Cardano.Ledger.Babel.Scripts
         Cardano.Ledger.Babel
         Cardano.Ledger.Babel.Governance
         Cardano.Ledger.Babel.Rules
@@ -58,8 +60,7 @@ library
         Cardano.Ledger.Babel.Rules.Utxo
         Cardano.Ledger.Babel.Rules.Utxos
         Cardano.Ledger.Babel.Rules.Utxow
-        Cardano.Ledger.Babel.Rules.Zone
-        Cardano.Ledger.Babel.Rules.Zones
+        Cardano.Ledger.Babel.Rules.Swaps
         Cardano.Ledger.Babel.Rules.Cert
         Cardano.Ledger.Babel.Rules.Certs
         Cardano.Ledger.Babel.Rules.Deleg

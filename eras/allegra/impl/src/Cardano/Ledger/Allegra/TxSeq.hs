@@ -15,14 +15,11 @@ import Cardano.Ledger.Allegra.Tx ()
 import Cardano.Ledger.Core (EraSegWits (..))
 import Cardano.Ledger.Crypto (Crypto, StandardCrypto)
 import Cardano.Ledger.Shelley.BlockChain (ShelleyTxSeq (..), bbHash, txSeqTxns)
-import qualified Data.Sequence.Strict as StrictSeq
 
 instance Crypto c => EraSegWits (AllegraEra c) where
   {-# SPECIALIZE instance EraSegWits (AllegraEra StandardCrypto) #-}
-  type TxStructure (AllegraEra c) = StrictSeq.StrictSeq
-  type TxZones (AllegraEra c) = ShelleyTxSeq (AllegraEra c)
-  fromTxZones = txSeqTxns
-  toTxZones = ShelleyTxSeq
-  flatten = txSeqTxns
-  hashTxZones = bbHash
+  type TxSeq (AllegraEra c) = ShelleyTxSeq (AllegraEra c)
+  fromTxSeq = txSeqTxns
+  toTxSeq = ShelleyTxSeq
+  hashTxSeq = bbHash
   numSegComponents = 3

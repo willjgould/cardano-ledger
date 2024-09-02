@@ -34,7 +34,6 @@ import Cardano.Ledger.UTxO (
 import Cardano.Ledger.Val (inject)
 import Data.Foldable (fold)
 import qualified Data.Set as Set
-import Debug.Trace (trace)
 import Lens.Micro
 
 instance Crypto c => EraUTxO (MaryEra c) where
@@ -72,10 +71,7 @@ getConsumedMaryValue ::
   TxBody era ->
   MaryValue (EraCrypto era)
 getConsumedMaryValue pp lookupStakingDeposit lookupDRepDeposit utxo txBody =
-  trace
-    ("\n\n THE MARY CONSUMED VALUE: " <> show (consumedValue <> MaryValue mempty mintedMultiAsset))
-    consumedValue
-    <> MaryValue mempty mintedMultiAsset
+  consumedValue <> MaryValue mempty mintedMultiAsset
   where
     mintedMultiAsset = filterMultiAsset (\_ _ -> (> 0)) $ txBody ^. mintTxBodyL
     {- balance (txins tx ◁ u) + wbalance (txwdrls tx) + keyRefunds pp tx -}
@@ -93,21 +89,7 @@ getProducedMaryValue ::
   TxBody era ->
   MaryValue (EraCrypto era)
 getProducedMaryValue pp isPoolRegistered txBody =
-  trace
-    ( "\n\n THE MARY PRODUCED VALUE: "
-        <> show
-          ( shelleyProducedValue
-              pp
-              isPoolRegistered
-              txBody
-              <> MaryValue mempty burnedMultiAsset
-          )
-    )
-    shelleyProducedValue
-    pp
-    isPoolRegistered
-    txBody
-    <> MaryValue mempty burnedMultiAsset
+  shelleyProducedValue pp isPoolRegistered txBody <> MaryValue mempty burnedMultiAsset
   where
     burnedMultiAsset =
       mapMaybeMultiAsset (\_ _ v -> if v < 0 then Just (negate v) else Nothing) $

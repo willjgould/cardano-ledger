@@ -1,5 +1,4 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
 
 module Test.Cardano.Ledger.Shelley.Imp.EpochSpec (
   spec,

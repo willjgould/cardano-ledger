@@ -15,25 +15,26 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Cardano.Ledger.Babel.Rules.Ledgers (BabelLEDGERS, BabelLedgersEnv (..)) where
+module Cardano.Ledger.Babel.Rules.Ledgers (BabelLEDGERS) where
 
 import Cardano.Ledger.Alonzo.Rules (AlonzoUtxosPredFailure)
 import Cardano.Ledger.Babel.Era (BabelEra, BabelLEDGERS)
 import Cardano.Ledger.Babel.Rules.Ledger (BabelLEDGER, BabelLedgerEvent, BabelLedgerPredFailure)
 import Cardano.Ledger.Babel.Rules.Pool ()
+import Cardano.Ledger.Babel.Rules.Swaps (BabelSwapsPredFailure)
 import Cardano.Ledger.Babel.Rules.Utxo (BabelUtxoPredFailure)
 import Cardano.Ledger.Babel.Rules.Utxos (BabelUtxosPredFailure)
 import Cardano.Ledger.Babel.Rules.Utxow (BabelUtxowPredFailure)
 import Cardano.Ledger.BaseTypes (ShelleyBase)
 import Cardano.Ledger.Core
 import Cardano.Ledger.Keys (DSignable, Hash)
-import Cardano.Ledger.Shelley.API.Types (AccountState, LedgerEnv (LedgerEnv))
+import Cardano.Ledger.Shelley.API (ShelleyLedgersEnv (LedgersEnv))
+import Cardano.Ledger.Shelley.API.Types (LedgerEnv (LedgerEnv))
+import Cardano.Ledger.Shelley.LedgerState (LedgerState)
 import Cardano.Ledger.Shelley.Rules (
   ShelleyLedgersEvent (LedgerEvent),
   ShelleyLedgersPredFailure (..),
  )
-import Cardano.Ledger.Slot (SlotNo)
-import Cardano.Ledger.TxIn (TxIx)
 import Control.Monad (foldM)
 import Control.State.Transition (
   Embed (wrapEvent, wrapFailed),
@@ -46,16 +47,6 @@ import Control.State.Transition (
 import Data.Default.Class (Default)
 import Data.Foldable (toList)
 import Data.Sequence (Seq)
-import GHC.Generics (Generic)
-import Cardano.Ledger.Shelley.LedgerState (LedgerState)
-
-data BabelLedgersEnv era = BabelLedgersEnv
-  { ledgerSlotNo :: !SlotNo
-  , ledgerIxStart :: !TxIx
-  , ledgerPp :: !(PParams era)
-  , ledgerAccount :: !AccountState
-  }
-  deriving (Generic)
 
 type instance EraRuleFailure "LEDGERS" (BabelEra c) = ShelleyLedgersPredFailure (BabelEra c)
 
@@ -65,6 +56,9 @@ instance InjectRuleFailure "LEDGERS" ShelleyLedgersPredFailure (BabelEra c)
 
 instance InjectRuleFailure "LEDGERS" BabelLedgerPredFailure (BabelEra c) where
   injectFailure = LedgerFailure
+
+instance InjectRuleFailure "LEDGERS" BabelSwapsPredFailure (BabelEra c) where
+  injectFailure = LedgerFailure . injectFailure
 
 instance InjectRuleFailure "LEDGERS" BabelUtxowPredFailure (BabelEra c) where
   injectFailure = LedgerFailure . injectFailure
@@ -91,7 +85,7 @@ instance
   where
   type State (BabelLEDGERS era) = LedgerState era
   type Signal (BabelLEDGERS era) = Seq (Tx era)
-  type Environment (BabelLEDGERS era) = BabelLedgersEnv era
+  type Environment (BabelLEDGERS era) = ShelleyLedgersEnv era
   type BaseM (BabelLEDGERS era) = ShelleyBase
   type PredicateFailure (BabelLEDGERS era) = ShelleyLedgersPredFailure era
   type Event (BabelLEDGERS era) = ShelleyLedgersEvent era
@@ -110,15 +104,14 @@ ledgersTransition ::
   ) =>
   TransitionRule (BabelLEDGERS era)
 ledgersTransition = do
-  TRC (BabelLedgersEnv slot ixStart pp account, ls, txwits) <-
-    judgmentContext
+  TRC (LedgersEnv slot pp account, ls, txwits) <- judgmentContext
   foldM
     ( \ !ls' (ix, tx) ->
         trans @(EraRule "LEDGER" era) $
           TRC (LedgerEnv slot ix pp account, ls', tx)
     )
     ls
-    $ zip [ixStart ..]
+    $ zip [minBound ..]
     $ toList txwits
 
 instance

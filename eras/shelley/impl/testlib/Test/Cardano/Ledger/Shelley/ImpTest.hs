@@ -12,7 +12,6 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -32,9 +31,8 @@ module Test.Cardano.Ledger.Shelley.ImpTest (
   runImpTestGenM_,
   evalImpTestGenM,
   execImpTestGenM,
-  ImpTestState (..),
+  ImpTestState,
   ImpTestEnv (..),
-  impRootTxInL,
   ImpException (..),
   ShelleyEraImp (..),
   PlutusArgs,
@@ -119,7 +117,6 @@ import Cardano.Ledger.Address (
   RewardAccount (..),
   bootstrapKeyHash,
  )
-import Cardano.Ledger.BHeaderView (BHeaderView)
 import Cardano.Ledger.BaseTypes
 import Cardano.Ledger.Binary (DecCBOR, EncCBOR)
 import Cardano.Ledger.CertState (certDStateL, dsUnifiedL)
@@ -142,7 +139,6 @@ import Cardano.Ledger.PoolDistr (IndividualPoolStake (..), PoolDistr (..))
 import Cardano.Ledger.PoolParams (PoolParams (..))
 import Cardano.Ledger.SafeHash (HashAnnotated (..), SafeHash, extractHash)
 import Cardano.Ledger.Shelley (ShelleyEra)
-import Cardano.Ledger.Shelley.API (Block)
 import Cardano.Ledger.Shelley.AdaPots (sumAdaPots, totalAdaPotsES)
 import Cardano.Ledger.Shelley.Core
 import Cardano.Ledger.Shelley.LedgerState (
@@ -169,7 +165,7 @@ import Cardano.Ledger.Shelley.LedgerState (
   utxosDonationL,
   utxosUtxoL,
  )
-import Cardano.Ledger.Shelley.Rules (BbodyEnv, LedgerEnv (..), ShelleyBbodyState)
+import Cardano.Ledger.Shelley.Rules (LedgerEnv (..))
 import Cardano.Ledger.Shelley.Scripts (MultiSig (..))
 import Cardano.Ledger.Tools (calcMinFeeTxNativeScriptWits, integralToByteStringN)
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
@@ -330,13 +326,6 @@ class
   , ToExpr (StashedAVVMAddresses era)
   , NFData (StashedAVVMAddresses era)
   , Default (StashedAVVMAddresses era)
-  , -- For BBODY rule
-    STS (EraRule "BBODY" era)
-  , BaseM (EraRule "BBODY" era) ~ ShelleyBase
-  , Environment (EraRule "BBODY" era) ~ BbodyEnv era
-  , State (EraRule "BBODY" era) ~ ShelleyBbodyState era
-  , Signal (EraRule "BBODY" era) ~ Block (BHeaderView (EraCrypto era)) era
-  , State (EraRule "LEDGERS" era) ~ LedgerState era
   , -- For the LEDGER rule
     STS (EraRule "LEDGER" era)
   , BaseM (EraRule "LEDGER" era) ~ ShelleyBase
@@ -472,10 +461,8 @@ initShelleyImpNES =
   where
     pp =
       emptyPParams
-        & ppMinFeeAL
-        .~ Coin 44
-        & ppMinFeeBL
-        .~ Coin 155_381
+        & ppMinFeeAL .~ Coin 44
+        & ppMinFeeBL .~ Coin 155_381
     epochState =
       EpochState
         { esAccountState =
@@ -498,10 +485,8 @@ initShelleyImpNES =
               }
         , esNonMyopic = def
         }
-        & prevPParamsEpochStateL
-        .~ pp
-        & curPParamsEpochStateL
-        .~ pp
+        & prevPParamsEpochStateL .~ pp
+        & curPParamsEpochStateL .~ pp
     utxo = mempty
 
 mkTxId :: Crypto c => Int -> TxId c
@@ -671,8 +656,7 @@ execImpTestM ::
   IO (ImpTestState era)
 execImpTestM qcSize impState = fmap snd . runImpTestM qcSize impState
 
-runImpTestGenM_ ::
-  ShelleyEraImp era => ImpTestState era -> ImpTestM era b -> Gen (IO ())
+runImpTestGenM_ :: ShelleyEraImp era => ImpTestState era -> ImpTestM era b -> Gen (IO ())
 runImpTestGenM_ impState = fmap void . runImpTestGenM impState
 
 runImpTestM_ ::
@@ -680,10 +664,7 @@ runImpTestM_ ::
 runImpTestM_ qcSize impState = void . runImpTestM qcSize impState
 
 runImpTestGenM ::
-  ShelleyEraImp era =>
-  ImpTestState era ->
-  ImpTestM era b ->
-  Gen (IO (b, ImpTestState era))
+  ShelleyEraImp era => ImpTestState era -> ImpTestM era b -> Gen (IO (b, ImpTestState era))
 runImpTestGenM impState m =
   MkGen $ \qcGen qcSz -> runImpTestM (Just qcSz) (mixinCurrentGen impState qcGen) m
 
@@ -782,9 +763,7 @@ addNativeScriptTxWits tx = impAnn "addNativeScriptTxWits" $ do
       scriptsToAdd = scriptsRequired Map.\\ provided
   pure $
     tx
-      & witsTxL
-      . scriptTxWitsL
-      <>~ fmap fromNativeScript scriptsToAdd
+      & witsTxL . scriptTxWitsL <>~ fmap fromNativeScript scriptsToAdd
 
 -- | Adds @TxWits@ that will satisfy all of the required key witnesses
 updateAddrTxWits ::
@@ -820,13 +799,8 @@ updateAddrTxWits tx = impAnn "updateAddrTxWits" $ do
     pure $ makeBootstrapWitness (extractHash txBodyHash) signingKey attrs
   pure $
     tx
-      & witsTxL
-      . addrTxWitsL
-      <>~ extraAddrVKeyWits
-      <> extraNativeScriptVKeyWits
-        & witsTxL
-        . bootAddrTxWitsL
-        <>~ Set.fromList extraBootAddrWits
+      & witsTxL . addrTxWitsL <>~ extraAddrVKeyWits <> extraNativeScriptVKeyWits
+      & witsTxL . bootAddrTxWitsL <>~ Set.fromList extraBootAddrWits
 
 -- | This fixup step ensures that there are enough funds in the transaction.
 addRootTxIn ::
@@ -837,9 +811,7 @@ addRootTxIn tx = impAnn "addRootTxIn" $ do
   rootTxIn <- fst <$> lookupImpRootTxOut
   pure $
     tx
-      & bodyTxL
-      . inputsTxBodyL
-      %~ Set.insert rootTxIn
+      & bodyTxL . inputsTxBodyL %~ Set.insert rootTxIn
 
 impNativeScriptKeyPairs ::
   ShelleyEraImp era =>
@@ -895,20 +867,12 @@ fixupFees tx = impAnn "fixupFees" $ do
     txWithFee
       | change >= getMinCoinTxOut pp changeTxOut =
           txNoWits
-            & bodyTxL
-            . outputsTxBodyL
-            .~ (outsBeforeFee :|> changeTxOut)
-            & bodyTxL
-            . feeTxBodyL
-            .~ fee
+            & bodyTxL . outputsTxBodyL .~ (outsBeforeFee :|> changeTxOut)
+            & bodyTxL . feeTxBodyL .~ fee
       | otherwise =
           txNoWits
-            & bodyTxL
-            . outputsTxBodyL
-            .~ outsBeforeFee
-            & bodyTxL
-            . feeTxBodyL
-            .~ (fee <> change)
+            & bodyTxL . outputsTxBodyL .~ outsBeforeFee
+            & bodyTxL . feeTxBodyL .~ (fee <> change)
   pure txWithFee
 
 shelleyFixupTx ::
@@ -933,20 +897,10 @@ logFeeMismatch tx = do
     logEntry $
       "Estimated fee " <> show feeUsed <> " while required fee is " <> show feeMin
 
-submitTx_ ::
-  ( HasCallStack
-  , ShelleyEraImp era
-  ) =>
-  Tx era ->
-  ImpTestM era ()
+submitTx_ :: (HasCallStack, ShelleyEraImp era) => Tx era -> ImpTestM era ()
 submitTx_ = void . submitTx
 
-submitTx ::
-  ( HasCallStack
-  , ShelleyEraImp era
-  ) =>
-  Tx era ->
-  ImpTestM era (Tx era)
+submitTx :: (HasCallStack, ShelleyEraImp era) => Tx era -> ImpTestM era (Tx era)
 submitTx tx = trySubmitTx tx >>= expectRightDeepExpr
 
 trySubmitTx ::
@@ -1188,11 +1142,7 @@ withImpStateModified f =
       (rootKeyHash, _) <- freshKeyPair
       let rootAddr = Addr Testnet (KeyHashObj rootKeyHash) StakeRefNull
           rootTxOut = mkBasicTxOut rootAddr $ inject rootCoin
-      impNESL
-        . nesEsL
-        . esLStateL
-        . lsUTxOStateL
-        . utxosUtxoL
+      impNESL . nesEsL . esLStateL . lsUTxOStateL . utxosUtxoL
         %= (<> UTxO (Map.singleton rootTxIn rootTxOut))
 
 -- | Creates a fresh @SafeHash@
@@ -1292,18 +1242,14 @@ freshBootstapAddress = do
   pure bootAddr
 
 sendCoinTo ::
-  ( ShelleyEraImp era
-  , HasCallStack
-  ) =>
+  (ShelleyEraImp era, HasCallStack) =>
   Addr (EraCrypto era) ->
   Coin ->
   ImpTestM era (TxIn (EraCrypto era))
 sendCoinTo addr = sendValueTo addr . inject
 
 sendValueTo ::
-  ( ShelleyEraImp era
-  , HasCallStack
-  ) =>
+  (ShelleyEraImp era, HasCallStack) =>
   Addr (EraCrypto era) ->
   Value era ->
   ImpTestM era (TxIn (EraCrypto era))
@@ -1312,9 +1258,7 @@ sendValueTo addr amount = do
     submitTxAnn
       ("Giving " <> show amount <> " to " <> show addr)
       $ mkBasicTx mkBasicTxBody
-        & bodyTxL
-        . outputsTxBodyL
-        .~ SSeq.singleton (mkBasicTxOut addr amount)
+        & bodyTxL . outputsTxBodyL .~ SSeq.singleton (mkBasicTxOut addr amount)
   pure $ txInAt (0 :: Int) tx
 
 -- | Modify the current new epoch state with a function
@@ -1332,21 +1276,14 @@ getProtVer :: EraGov era => ImpTestM era ProtVer
 getProtVer = getsNES $ nesEsL . curPParamsEpochStateL . ppProtocolVersionL
 
 submitTxAnn ::
-  ( HasCallStack
-  , ShelleyEraImp era
-  ) =>
+  (HasCallStack, ShelleyEraImp era) =>
   String ->
   Tx era ->
   ImpTestM era (Tx era)
 submitTxAnn msg tx = impAnn msg (trySubmitTx tx >>= expectRightDeepExpr)
 
 submitTxAnn_ ::
-  ( HasCallStack
-  , ShelleyEraImp era
-  ) =>
-  String ->
-  Tx era ->
-  ImpTestM era ()
+  (HasCallStack, ShelleyEraImp era) => String -> Tx era -> ImpTestM era ()
 submitTxAnn_ msg = void . submitTxAnn msg
 
 getRewardAccountFor ::
@@ -1369,16 +1306,14 @@ registerRewardAccount = do
   let stakingCredential = KeyHashObj khDelegator
   submitTxAnn_ ("Register Reward Account: " <> T.unpack (credToText stakingCredential)) $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . outputsTxBodyL
-      .~ SSeq.fromList
-        [ mkBasicTxOut
-            (mkAddr (kpSpending, kpDelegator))
-            (inject $ Coin 10_000_000)
-        ]
-      & bodyTxL
-      . certsTxBodyL
-      .~ SSeq.fromList [RegTxCert @era stakingCredential]
+      & bodyTxL . outputsTxBodyL
+        .~ SSeq.fromList
+          [ mkBasicTxOut
+              (mkAddr (kpSpending, kpDelegator))
+              (inject $ Coin 10_000_000)
+          ]
+      & bodyTxL . certsTxBodyL
+        .~ SSeq.fromList [RegTxCert @era stakingCredential]
   networkId <- use (to impGlobals . to networkId)
   pure $ RewardAccount networkId stakingCredential
 
@@ -1394,9 +1329,7 @@ lookupReward stakingCredential = do
           <> "or by some other means."
     Just rd -> pure $ fromCompact (rdReward rd)
 
-registerPool ::
-  ShelleyEraImp era =>
-  ImpTestM era (KeyHash 'StakePool (EraCrypto era))
+registerPool :: ShelleyEraImp era => ImpTestM era (KeyHash 'StakePool (EraCrypto era))
 registerPool = do
   khPool <- freshKeyHash
   rewardAccount <- registerRewardAccount
@@ -1416,9 +1349,7 @@ registerPool = do
         }
   submitTxAnn_ "Registering a new stake pool" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . certsTxBodyL
-      .~ SSeq.singleton (RegPoolTxCert poolParams)
+      & bodyTxL . certsTxBodyL .~ SSeq.singleton (RegPoolTxCert poolParams)
   pure khPool
 
 registerAndRetirePoolToMakeReward ::
@@ -1445,16 +1376,13 @@ registerAndRetirePoolToMakeReward stakingC = do
           }
   submitTxAnn_ "Registering a temporary stake pool" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . certsTxBodyL
-      .~ SSeq.singleton (RegPoolTxCert poolParams)
+      & bodyTxL . certsTxBodyL .~ SSeq.singleton (RegPoolTxCert poolParams)
   passEpoch
   currentEpochNo <- getsNES nesELL
   submitTxAnn_ "Retiring the temporary stake pool" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL
-      . certsTxBodyL
-      .~ SSeq.singleton (RetirePoolTxCert poolKH $ addEpochInterval currentEpochNo $ EpochInterval 2)
+      & bodyTxL . certsTxBodyL
+        .~ SSeq.singleton (RetirePoolTxCert poolKH $ addEpochInterval currentEpochNo $ EpochInterval 2)
   passEpoch
 
 -- | Compose given function with the configured fixup

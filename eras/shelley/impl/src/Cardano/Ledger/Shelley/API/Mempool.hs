@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -274,10 +273,7 @@ instance
 
 -- | Old 'applyTxs'
 applyTxs ::
-  ( ApplyTx era
-  , MonadError (ApplyTxError era) m
-  , EraGov era
-  ) =>
+  (ApplyTx era, MonadError (ApplyTxError era) m, EraGov era) =>
   Globals ->
   SlotNo ->
   Seq (Tx era) ->
