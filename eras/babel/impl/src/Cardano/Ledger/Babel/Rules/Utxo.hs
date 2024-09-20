@@ -12,6 +12,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
@@ -43,7 +44,7 @@ import qualified Cardano.Ledger.Alonzo.Rules as Alonzo (
   validateTooManyCollateralInputs,
   validateWrongNetworkInTxBody,
  )
-import Cardano.Ledger.Alonzo.Tx (AlonzoTx)
+import Cardano.Ledger.Alonzo.Tx (AlonzoTx, IsValid (IsValid))
 import Cardano.Ledger.Alonzo.TxSeq (AlonzoTxSeq)
 import Cardano.Ledger.Alonzo.TxWits (nullRedeemers)
 import Cardano.Ledger.Babbage (BabbageEra)
@@ -61,7 +62,9 @@ import Cardano.Ledger.Babbage.UTxO (getReferenceScriptsNonDistinct)
 import Cardano.Ledger.Babel.Core
 import Cardano.Ledger.Babel.Era (BabelEra, BabelUTXO, BabelUTXOS)
 import Cardano.Ledger.Babel.Rules.Utxos (
+  BabelUtxoEnv (..),
   BabelUtxosPredFailure (..),
+  BatchData (..),
  )
 import Cardano.Ledger.Babel.UTxO (babelProducedValue)
 import Cardano.Ledger.BaseTypes (
@@ -106,7 +109,6 @@ import Cardano.Ledger.SafeHash (originalBytesSize)
 import Cardano.Ledger.Shelley.LedgerState (UTxOState (..))
 import Cardano.Ledger.Shelley.Rules (ShelleyUtxoPredFailure)
 import qualified Cardano.Ledger.Shelley.Rules as Shelley (
-  UtxoEnv (UtxoEnv),
   validateInputSetEmptyUTxO,
   validateOutputBootAddrAttrsTooBig,
   validateWrongNetwork,
@@ -254,6 +256,11 @@ data BabelUtxoPredFailure era
   | BadFulfillsFRxO
       !(Set (Fulfill (EraCrypto era)))
   | DependsOnZoneOutput
+  | CheckRqObsFailure
+  | CheckCorInsFailure
+  | CheckCorInsOutsFailure
+  | CheckInsInUtxoFailure
+  | CheckSubTxsValidFailure
   deriving (Generic)
 
 type instance EraRuleFailure "UTXO" (BabelEra c) = BabelUtxoPredFailure (BabelEra c)
@@ -354,14 +361,14 @@ utxoTransition ::
   , InjectRuleFailure "UTXO" AllegraUtxoPredFailure era
   , InjectRuleFailure "UTXO" AlonzoUtxoPredFailure era
   , InjectRuleFailure "UTXO" BabbageUtxoPredFailure era
-  , Environment (EraRule "UTXO" era) ~ Shelley.UtxoEnv era
+  , Environment (EraRule "UTXO" era) ~ BabelUtxoEnv era
   , State (EraRule "UTXO" era) ~ UTxOState era
   , Signal (EraRule "UTXO" era) ~ Tx era
   , BaseM (EraRule "UTXO" era) ~ ShelleyBase
   , STS (EraRule "UTXO" era)
   , -- In this function we we call the UTXOS rule, so we need some assumptions
     Embed (EraRule "UTXOS" era) (EraRule "UTXO" era)
-  , Environment (EraRule "UTXOS" era) ~ Shelley.UtxoEnv era
+  , Environment (EraRule "UTXOS" era) ~ BabelUtxoEnv era
   , State (EraRule "UTXOS" era) ~ UTxOState era
   , Signal (EraRule "UTXOS" era) ~ Tx era
   , InjectRuleFailure "UTXO" BabelUtxoPredFailure era
@@ -369,12 +376,12 @@ utxoTransition ::
   ) =>
   TransitionRule (EraRule "UTXO" era)
 utxoTransition = do
-  TRC (Shelley.UtxoEnv slot pp _certState, utxos, tx) <- judgmentContext
+  TRC (BabelUtxoEnv slot pp _certState _bobs batchData, utxos, tx) <- trace "PASS" judgmentContext
   let utxo = utxosUtxo utxos
 
   {-   txb := txbody tx   -}
   let txBody = tx ^. bodyTxL
-      allInputs = txBody ^. allInputsTxBodyF
+      -- allInputs = txBody ^. allInputsTxBodyF
       refInputs :: Set (TxIn (EraCrypto era))
       refInputs = txBody ^. referenceInputsTxBodyL
       inputs :: Set (TxIn (EraCrypto era))
@@ -393,14 +400,25 @@ utxoTransition = do
   runTest $ Alonzo.validateOutsideForecast ei slot sysSt tx
 
   {-   txins txb ≠ ∅   -}
-  runTestOnSignal $ Shelley.validateInputSetEmptyUTxO txBody
+  when
+    ( case batchData of
+        Batch txId _ | txId == txIdTx tx -> False
+        _ -> True
+    )
+    $ runTestOnSignal
+    $ Shelley.validateInputSetEmptyUTxO txBody
 
   {-   feesOK pp tx utxo   -}
-  validate $ feesOK pp tx utxo -- Generalizes the fee to small from earlier Era's
+  -- BABEL: This has been moved to LEDGER
+  -- validate $ feesOK pp tx utxo -- Generalizes the fee to small from earlier Era's
 
   {- allInputs = spendInputs txb ∪ collInputs txb ∪ refInputs txb -}
   {- (spendInputs txb ∪ collInputs txb ∪ refInputs txb) ⊆ dom utxo   -}
-  runTest $ validateBadInputsUTxO utxo allInputs
+
+  -- I need to get rid of the first part of the union? So, remove "spendInputs txb ∪ collInputs txb" from the union with refInputs?
+  -- runTest $ validateBadInputsUTxO utxo allInputs
+  -- Note that I'm now just passing `refInputs`, not `allInputs`
+  runTest $ validateBadInputsUTxO utxo refInputs
 
   {-   adaID ∉ supp mint tx - check not needed because mint field of type MultiAsset
    cannot contain ada -}
@@ -479,7 +497,7 @@ instance
   , InjectRuleFailure "UTXO" BabbageUtxoPredFailure era
   , InjectRuleFailure "UTXO" BabelUtxoPredFailure era
   , Embed (EraRule "UTXOS" era) (BabelUTXO era)
-  , Environment (EraRule "UTXOS" era) ~ Shelley.UtxoEnv era
+  , Environment (EraRule "UTXOS" era) ~ BabelUtxoEnv era
   , State (EraRule "UTXOS" era) ~ UTxOState era
   , Signal (EraRule "UTXOS" era) ~ Tx era
   , PredicateFailure (EraRule "UTXO" era) ~ BabelUtxoPredFailure era
@@ -489,7 +507,7 @@ instance
   where
   type State (BabelUTXO era) = UTxOState era
   type Signal (BabelUTXO era) = Tx era
-  type Environment (BabelUTXO era) = Shelley.UtxoEnv era
+  type Environment (BabelUTXO era) = BabelUtxoEnv era
   type BaseM (BabelUTXO era) = ShelleyBase
   type PredicateFailure (BabelUTXO era) = BabelUtxoPredFailure era
   type Event (BabelUTXO era) = AlonzoUtxoEvent era
@@ -555,7 +573,11 @@ instance
       CollInUtxoInvalidFailure -> Sum CollInUtxoInvalidFailure 29
       BadFulfillsFRxO fs -> Sum (BadFulfillsFRxO @era) 30 !> To fs
       DependsOnZoneOutput -> Sum DependsOnZoneOutput 31
-
+      CheckRqObsFailure -> Sum CheckRqObsFailure 32
+      CheckCorInsFailure -> Sum CheckCorInsFailure 33
+      CheckCorInsOutsFailure -> Sum CheckCorInsOutsFailure 34
+      CheckInsInUtxoFailure -> Sum CheckInsInUtxoFailure 35
+      CheckSubTxsValidFailure -> Sum CheckSubTxsValidFailure 36
 instance
   ( Era era
   , DecCBOR (TxOut era)
@@ -597,6 +619,11 @@ instance
     29 -> SumD CollInUtxoInvalidFailure
     30 -> SumD BadFulfillsFRxO <! From
     31 -> SumD DependsOnZoneOutput
+    32 -> SumD CheckRqObsFailure
+    33 -> SumD CheckCorInsFailure
+    34 -> SumD CheckCorInsOutsFailure
+    35 -> SumD CheckInsInUtxoFailure
+    36 -> SumD CheckSubTxsValidFailure
     n -> Invalid n
 
 -- =====================================================

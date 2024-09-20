@@ -33,7 +33,7 @@ import Cardano.Ledger.Babel.TxOut ()
 import Cardano.Ledger.Babel.TxSeq (BabelTxSeq)
 import Cardano.Ledger.Babel.UTxO ()
 import Cardano.Ledger.Conway.Governance (RunConwayRatify (..))
-import Cardano.Ledger.Core (EraIndependentTxBody, EraSegWits (TxSeq), Tx)
+import Cardano.Ledger.Core (EraIndependentTxBody, EraSegWits (TxSeq))
 import Cardano.Ledger.Crypto (Crypto (DSIGN), HASH, StandardCrypto)
 import Cardano.Ledger.Keys (DSignable)
 import Cardano.Ledger.Shelley.API (ApplyTx (reapplyTx), LedgerState)
@@ -48,8 +48,7 @@ type Babel = BabelEra StandardCrypto
 instance
   ( Crypto c
   , DSignable c (Hash c EraIndependentTxBody)
-  , -- TODO WG figure out what you've done wrong to introduce this constraint
-    Signable (DSIGN c) (Hash (Cardano.Ledger.Crypto.HASH c) EraIndependentTxBody)
+  , Signable (DSIGN c) (Hash (Cardano.Ledger.Crypto.HASH c) EraIndependentTxBody)
   , Default (LedgerState (BabelEra c))
   ) =>
   ApplyTx (BabelEra c)

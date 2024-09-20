@@ -25,7 +25,7 @@ module Cardano.Ledger.Babel.TxSeq (
 where
 
 import qualified Cardano.Crypto.Hash as Hash
-import Cardano.Ledger.Alonzo.Tx (AlonzoEraTx (..), IsValid (..), alonzoSegwitTx)
+import Cardano.Ledger.Alonzo.Tx (AlonzoEraTx (..), IsValid (..))
 import Cardano.Ledger.Babel.Era
 import Cardano.Ledger.Babel.Tx
 import Cardano.Ledger.Binary (
@@ -46,18 +46,21 @@ import Cardano.Ledger.Crypto
 import Cardano.Ledger.Keys (Hash)
 import Cardano.Ledger.SafeHash (SafeToHash, originalBytes)
 import Cardano.Ledger.Shelley.BlockChain (constructMetadata)
+import Cardano.Ledger.TxIn (TxId)
 import Control.Monad (unless)
 import Data.ByteString (ByteString)
 import Data.ByteString.Builder (shortByteString, toLazyByteString)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Coerce (coerce)
+import Data.Foldable (toList)
 import qualified Data.Map.Strict as Map
-import Data.Maybe.Strict (strictMaybeToMaybe)
+import Data.Maybe.Strict (StrictMaybe, strictMaybeToMaybe)
 import Data.Proxy (Proxy (..))
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Sequence.Strict (StrictSeq)
 import qualified Data.Sequence.Strict as StrictSeq
+import qualified Data.Set as Set
 import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
 import Lens.Micro
@@ -85,30 +88,28 @@ data BabelTxSeq era = BabelTxSeqRaw
   , txSeqIsValidBytes :: BSL.ByteString
   -- ^ Bytes representing a set of integers. These are the indices of
   -- transactions with 'isValid' == False.
-  , txSeqIsTopLevel :: BSL.ByteString -- Represents Seq Bool
-  , txSeqSwaps :: BSL.ByteString -- Represents Seq (Strict.Map (TxId (EraCrypto era)) (TxSwaps era))
-  , txSeqRequiredTxBodies :: BSL.ByteString -- Represents Seq (Strict.Map (TxId (EraCrypto era)) (TxBody era))
+  , txSeqSwaps :: BSL.ByteString -- Represents Seq (StrictMaybe (Seq (TxId (EraCrypto era))))
   }
   deriving (Generic)
 
 instance Crypto c => EraSegWits (BabelEra c) where
   type TxSeq (BabelEra c) = BabelTxSeq (BabelEra c)
-  fromTxSeq :: Crypto c => Core.TxSeq (BabelEra c) -> StrictSeq (Tx (BabelEra c))
+  fromTxSeq :: Core.TxSeq (BabelEra c) -> StrictSeq (Tx (BabelEra c))
   fromTxSeq = txSeqTxns
+  toTxSeq :: StrictSeq (Tx (BabelEra c)) -> Core.TxSeq (BabelEra c)
   toTxSeq = BabelTxSeq
   hashTxSeq = hashBabelTxSeq
-  numSegComponents = 7
+  numSegComponents = 6
 
 pattern BabelTxSeq ::
   forall era.
   ( BabelEraTx era
-  , SafeToHash (TxSwaps era)
   , SafeToHash (TxWits era)
   ) =>
   StrictSeq (Tx era) ->
   BabelTxSeq era
 pattern BabelTxSeq xs <-
-  BabelTxSeqRaw xs _ _ _ _ _ _ _
+  BabelTxSeqRaw xs _ _ _ _ _
   where
     BabelTxSeq txns =
       let version = eraProtVerLow @era
@@ -118,6 +119,12 @@ pattern BabelTxSeq xs <-
           metaChunk index m = encodeIndexed <$> strictMaybeToMaybe m
             where
               encodeIndexed metadata = encCBOR index <> encodePreEncoded metadata
+
+          encodeIds :: StrictSeq (TxId (EraCrypto era)) -> ByteString
+          encodeIds =
+            BSL.toStrict
+              . serialize version
+              . fmap (BSL.toStrict . serialize version . encCBOR)
        in BabelTxSeqRaw
             { txSeqTxns = txns
             , txSeqBodyBytes =
@@ -129,15 +136,25 @@ pattern BabelTxSeq xs <-
                   fmap originalBytes . view auxDataTxL <$> txns
             , txSeqIsValidBytes =
                 serialize version $ encCBOR $ nonValidatingIndices txns
-            , -- This should probably be like nonValidatingIndices because there's only one top level tx
-              txSeqIsTopLevel = serialize version $ encCBOR $ view isTopLevelTxL <$> txns -- Also, is this right? What about `originalBytes`?
             , txSeqSwaps =
-                serializeFoldablePreEncoded $ originalBytes . view subTxBodiesTxL <$> txns
-            , txSeqRequiredTxBodies =
-                serializeFoldablePreEncoded $ originalBytes . view requiredTxBodiesTxL <$> txns
+                serialize version $
+                  BSL.toStrict
+                    . serialize version
+                    . encCBOR
+                    . strictMaybeToMaybe
+                    . fmap encodeIds
+                    . txIdsFromSubBodies
+                    <$> txns
             }
 
 {-# COMPLETE BabelTxSeq #-}
+
+txIdsFromSubBodies :: BabelEraTx era => Tx era -> StrictMaybe (StrictSeq (TxId (EraCrypto era)))
+txIdsFromSubBodies = fmap (fmap txIdTx) . view subTxTxL
+
+-- case tx ^. subTxBodiesTxL of
+--   SNothing -> mempty
+--   SJust txIds -> txIds
 
 type TxSeq era = BabelTxSeq era
 
@@ -149,9 +166,7 @@ deriving via
      , "txSeqWitsBytes"
      , "txSeqMetadataBytes"
      , "txSeqIsValidBytes"
-     , "txSeqIsTopLevel"
      , "txSeqSwaps"
-     , "txSeqRequiredTxBodies"
      ]
     (TxSeq era)
   instance
@@ -166,10 +181,10 @@ deriving stock instance Eq (Tx era) => Eq (TxSeq era)
 --------------------------------------------------------------------------------
 
 instance Era era => EncCBORGroup (TxSeq era) where
-  encCBORGroup (BabelTxSeqRaw _ bodyBytes witsBytes metadataBytes invalidBytes topLevel swaps requiredTxBodies) =
+  encCBORGroup (BabelTxSeqRaw _ bodyBytes witsBytes metadataBytes invalidBytes swaps) =
     encodePreEncoded $
       BSL.toStrict $
-        bodyBytes <> witsBytes <> metadataBytes <> invalidBytes <> topLevel <> swaps <> requiredTxBodies
+        bodyBytes <> witsBytes <> metadataBytes <> invalidBytes <> swaps
   encodedGroupSizeExpr size _proxy =
     encodedSizeExpr size (Proxy :: Proxy ByteString)
       + encodedSizeExpr size (Proxy :: Proxy ByteString)
@@ -195,7 +210,7 @@ hashBabelTxSeq ::
   Era era =>
   BabelTxSeq era ->
   Hash (EraCrypto era) EraIndependentBlockBody
-hashBabelTxSeq (BabelTxSeqRaw _ bodies ws md vs topLevel swaps requiredTxBodies) =
+hashBabelTxSeq (BabelTxSeqRaw _ bodies ws md vs swaps) =
   coerce $
     hashStrict $
       BSL.toStrict $
@@ -205,9 +220,7 @@ hashBabelTxSeq (BabelTxSeqRaw _ bodies ws md vs topLevel swaps requiredTxBodies)
             , hashPart ws
             , hashPart md
             , hashPart vs
-            , hashPart topLevel
             , hashPart swaps
-            , hashPart requiredTxBodies
             ]
   where
     hashStrict :: ByteString -> Hash (EraCrypto era) ByteString
@@ -218,9 +231,7 @@ instance BabelEraTx era => DecCBOR (Annotator (TxSeq era)) where
   decCBOR = do
     (bodies, bodiesAnn) <- withSlice decCBOR
     (ws, witsAnn) <- withSlice decCBOR
-    (topLevel, topLevelAnn) <- withSlice decCBOR
-    (swaps, swapsAnn) <- withSlice decCBOR
-    (requiredTxBodies, requiredTxBodiesAnn) <- withSlice decCBOR
+    (swaps :: Seq (Maybe (Seq (TxId (EraCrypto era)))), swapsAnn) <- withSlice decCBOR
     let b = length bodies
         inRange x = (0 <= x) && (x <= (b - 1))
         w = length ws
@@ -256,20 +267,31 @@ instance BabelEraTx era => DecCBOR (Annotator (TxSeq era)) where
           )
       )
 
-    let txns =
+    -- TODO WG: I think I'm tying the knot right but double check
+    let txMap = (Map.fromList . toList) . fmap (\tx -> (txIdTx tx, tx)) <$> txns
+        entriesMatching :: Ord k => Map.Map k v -> Seq k -> Seq v
+        entriesMatching m = Seq.fromList . Map.elems . Map.restrictKeys m . (Set.fromList . toList)
+        txns = do
+          txMap' <- txMap
           sequenceA $
-            StrictSeq.forceToStrict $
-              zipWith7 babelSegwitTx bodies ws vs auxData topLevel swaps requiredTxBodies
+            zipWith5
+              (babelSegwitTx (entriesMatching txMap'))
+              bodies
+              ws
+              vs
+              auxData
+              swaps
     pure $
       BabelTxSeqRaw
-        <$> txns
+        <$> fmap StrictSeq.forceToStrict txns
         <*> bodiesAnn
         <*> witsAnn
         <*> auxDataAnn
         <*> isValAnn
-        <*> topLevelAnn
         <*> swapsAnn
-        <*> requiredTxBodiesAnn
+
+-- txsToMap :: Annotator (StrictSeq (Tx era)) -> Annotator (Map.Map (TxId (EraCrypto era)) (Tx era))
+-- txsToMap bodies = Annotator $ \bytes -> undefined
 
 --------------------------------------------------------------------------------
 -- Internal utility functions
@@ -277,22 +299,6 @@ instance BabelEraTx era => DecCBOR (Annotator (TxSeq era)) where
 
 zipWith5 :: (a -> b -> c -> d -> e -> f) -> Seq a -> Seq b -> Seq c -> Seq d -> Seq e -> Seq f
 zipWith5 f xs ys zs ws = Seq.zipWith ($) (Seq.zipWith4 f xs ys zs ws)
-
-zipWith6 ::
-  (a -> b -> c -> d -> e -> f -> g) -> Seq a -> Seq b -> Seq c -> Seq d -> Seq e -> Seq f -> Seq g
-zipWith6 f xs ys zs ws vs = Seq.zipWith ($) (zipWith5 f xs ys zs ws vs)
-
-zipWith7 ::
-  (a -> b -> c -> d -> e -> f -> g -> h) ->
-  Seq a ->
-  Seq b ->
-  Seq c ->
-  Seq d ->
-  Seq e ->
-  Seq f ->
-  Seq g ->
-  Seq h
-zipWith7 f xs ys zs ws vs ts = Seq.zipWith ($) (zipWith6 f xs ys zs ws vs ts)
 
 -- | Given a sequence of transactions, return the indices of those which do not
 -- validate. We store the indices of the non-validating transactions because we

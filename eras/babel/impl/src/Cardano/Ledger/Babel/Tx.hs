@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -5,9 +6,12 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
@@ -22,7 +26,7 @@
 module Cardano.Ledger.Babel.Tx where
 
 import Cardano.Ledger.Address (Addr)
-import Cardano.Ledger.Allegra.Core (Era (..), EraTxSwaps (..), PParams)
+import Cardano.Ledger.Allegra.Core (Era (..), PParams)
 import Cardano.Ledger.Allegra.Tx (validateTimelock)
 import Cardano.Ledger.Alonzo.Tx (
   AlonzoEraTx (isValidTxL),
@@ -32,11 +36,9 @@ import Cardano.Ledger.Alonzo.Tx (
   totExUnits,
  )
 import Cardano.Ledger.Babel.Era (BabelEra)
-import Cardano.Ledger.Babel.Swap ()
 import Cardano.Ledger.Babel.TxAuxData ()
 import Cardano.Ledger.Babel.TxBody (
   BabelEraTxBody (..),
-  BabelTxBodyRaw (bbtbrCorInputs, bbtbrRequiredTxs, bbtbrSpendOuts, bbtbrSwaps),
  )
 import Cardano.Ledger.Babel.TxWits ()
 import Cardano.Ledger.BaseTypes (
@@ -50,16 +52,12 @@ import Cardano.Ledger.Binary (
   EncCBOR (..),
   Encoding,
   ToCBOR,
-  encodeFoldableEncoder,
   encodeListLen,
   encodeNullMaybe,
   serialize,
  )
 import Cardano.Ledger.Binary.Coders (Decode (..), Encode (..), decode, encode, (!>), (<*!))
-import Cardano.Ledger.Binary.Decoding (
-  decodeMapTraverse,
-  decodeNullMaybe,
- )
+import Cardano.Ledger.Binary.Decoding (decodeNullMaybe)
 import Cardano.Ledger.Binary.Plain (ToCBOR (..))
 import Cardano.Ledger.Coin (Coin (Coin))
 import Cardano.Ledger.Conway.Core (AlonzoEraTxWits, ConwayEraPParams, ppPricesL)
@@ -86,18 +84,19 @@ import Cardano.Ledger.Core (
  )
 import qualified Cardano.Ledger.Core as Core
 import Cardano.Ledger.Crypto
-import Cardano.Ledger.MemoBytes (EqRaw (..), lensMemoRawType)
+import Cardano.Ledger.MemoBytes (EqRaw (..))
 import Cardano.Ledger.Plutus.ExUnits (txscriptfee)
 import qualified Cardano.Ledger.Shelley.UTxO as Shelley
 import Cardano.Ledger.TxIn (TxId)
 import Cardano.Ledger.Val (Val (..))
 import Control.DeepSeq (NFData)
 import qualified Data.ByteString.Lazy as LBS
-import Data.Data (Typeable)
-import Data.Functor.Classes (liftEq2)
+import Data.Foldable (foldl', toList)
 import qualified Data.Map as Map
-import qualified Data.Map.Strict as Strict
+import Data.Maybe (maybeToList)
 import Data.Maybe.Strict (maybeToStrictMaybe)
+import Data.Sequence (Seq)
+import Data.Sequence.Strict (StrictSeq, forceToStrict)
 import GHC.Generics (Generic)
 import Lens.Micro hiding (set)
 import NoThunks.Class (NoThunks)
@@ -107,63 +106,46 @@ data BabelTx era = BabelTx
   , btxWits :: !(TxWits era)
   , btxIsValid :: !IsValid
   , btxAuxiliaryData :: !(StrictMaybe (TxAuxData era))
-  , -- NEW
-    btxIsTopLevel :: !Bool
-  , -- NEW
-    btxSwaps :: !(TxSwaps era)
-  , -- NEW
-    btxRequiredTxBodies :: !(Strict.Map (TxId (EraCrypto era)) (TxBody era))
+  , -- , -- NEW
+    --   btxSwaps :: !(StrictMaybe (Seq (TxId (EraCrypto era))))
+    -- NEW
+    btxSwaps :: !(StrictMaybe (StrictSeq (Tx era)))
   }
   deriving (Generic)
 
-instance (Tx era ~ BabelTx era, BabelEraTx era, EqRaw (TxSwaps era)) => EqRaw (BabelTx era) where
+instance
+  (Tx era ~ BabelTx era, BabelEraTx era) =>
+  EqRaw (BabelTx era)
+  where
   eqRaw = babelEqTxRaw
 
 class
-  (EraTx era, AlonzoEraTx era, AlonzoEraTxWits era, BabelEraTxBody era) =>
+  ( EraTx era
+  , AlonzoEraTx era
+  , AlonzoEraTxWits era
+  , BabelEraTxBody era
+  ) =>
   BabelEraTx era
   where
-  isTopLevelTxL :: Lens' (Tx era) Bool
-  subTxBodiesTxL :: Lens' (Tx era) (TxSwaps era)
-  requiredTxBodiesTxL :: Lens' (Tx era) (Strict.Map (TxId (EraCrypto era)) (TxBody era))
+  subTxTxL :: Lens' (Tx era) (StrictMaybe (StrictSeq (Tx era)))
 
-instance Crypto c => BabelEraTxBody (BabelEra c) where
-  {-# SPECIALIZE instance BabelEraTxBody (BabelEra StandardCrypto) #-}
-  swapsTxBodyL = lensMemoRawType bbtbrSwaps (\txBodyRaw swaps_ -> txBodyRaw {bbtbrSwaps = swaps_})
-  spendOutsTxBodyL = lensMemoRawType bbtbrSpendOuts (\txBodyRaw spendOuts_ -> txBodyRaw {bbtbrSpendOuts = spendOuts_})
+-- batchValidTxL :: Lens' (Tx era) IsValid
 
-  requiredTxsTxBodyL =
-    lensMemoRawType
-      bbtbrRequiredTxs
-      (\txBodyRaw requiredTxs_ -> txBodyRaw {bbtbrRequiredTxs = requiredTxs_})
-  corInputsTxBodyL = lensMemoRawType bbtbrCorInputs (\txBodyRaw corInputs_ -> txBodyRaw {bbtbrCorInputs = corInputs_})
+instance Crypto c => BabelEraTx (BabelEra c) where
+  subTxTxL = subTxBodiesBabelTxL
+  {-# INLINE subTxTxL #-}
 
-instance (Crypto c, BabelEraTxBody (BabelEra c)) => BabelEraTx (BabelEra c) where
-  {-# SPECIALIZE instance BabelEraTx (BabelEra StandardCrypto) #-}
+-- batchValidTxL = batchValidBabelTxL
+-- {-# INLINE batchValidTxL #-}
 
-  isTopLevelTxL = isTopLevelBabelTxL
-  {-# INLINE isTopLevelTxL #-}
+mkBasicBabelTx ::
+  Monoid (TxWits era) => TxBody era -> BabelTx era
+mkBasicBabelTx txBody = BabelTx txBody mempty (IsValid True) SNothing mempty -- (IsValid True)
 
-  subTxBodiesTxL = subTxBodiesBabelTxL
-  {-# INLINE subTxBodiesTxL #-}
-
-  requiredTxBodiesTxL = requiredTxBodiesBabelTxL
-  {-# INLINE requiredTxBodiesTxL #-}
-
-mkBasicBabelTx :: (Monoid (TxWits era), Monoid (TxSwaps era)) => TxBody era -> BabelTx era
-mkBasicBabelTx txBody = BabelTx txBody mempty (IsValid True) SNothing True mempty mempty
-
-isTopLevelBabelTxL :: Lens' (BabelTx era) Bool
-isTopLevelBabelTxL = lens btxIsTopLevel (\tx tl -> tx {btxIsTopLevel = tl})
-{-# INLINEABLE isTopLevelBabelTxL #-}
-
-subTxBodiesBabelTxL :: Lens' (BabelTx era) (TxSwaps era)
+subTxBodiesBabelTxL ::
+  Lens' (BabelTx era) (StrictMaybe (StrictSeq (Tx era)))
 subTxBodiesBabelTxL = lens btxSwaps (\tx stx -> tx {btxSwaps = stx})
 {-# INLINEABLE subTxBodiesBabelTxL #-}
-
-requiredTxBodiesBabelTxL :: Lens' (BabelTx era) (Strict.Map (TxId (EraCrypto era)) (TxBody era))
-requiredTxBodiesBabelTxL = lens btxRequiredTxBodies (\tx rtx -> tx {btxRequiredTxBodies = rtx})
-{-# INLINEABLE requiredTxBodiesBabelTxL #-}
 
 -- | `TxBody` setter and getter for `BabelTx`.
 bodyBabelTxL :: Lens' (BabelTx era) (TxBody era)
@@ -184,20 +166,22 @@ toCBORForSizeComputation ::
   ( EncCBOR (TxBody era)
   , EncCBOR (TxWits era)
   , EncCBOR (TxAuxData era)
-  , EncCBOR (TxSwaps era)
+  , EncCBOR (Tx era)
   ) =>
   BabelTx era ->
   Encoding
-toCBORForSizeComputation BabelTx {btxBody, btxWits, btxAuxiliaryData, btxSwaps, btxRequiredTxBodies} =
-  encodeListLen 5
+toCBORForSizeComputation BabelTx {btxBody, btxWits, btxAuxiliaryData, btxSwaps} =
+  encodeListLen 4
     <> encCBOR btxBody
     <> encCBOR btxWits
     <> encodeNullMaybe encCBOR (strictMaybeToMaybe btxAuxiliaryData)
     <> encCBOR btxSwaps
-    <> encodeFoldableEncoder encCBOR btxRequiredTxBodies
 
 -- | txsize computes the length of the serialised bytes
-sizeBabelTxF :: forall era. (EraTx era, EncCBOR (TxSwaps era)) => SimpleGetter (BabelTx era) Integer
+sizeBabelTxF ::
+  forall era.
+  EraTx era =>
+  SimpleGetter (BabelTx era) Integer
 sizeBabelTxF =
   to $
     fromIntegral
@@ -211,34 +195,39 @@ isValidBabelTxL = lens btxIsValid (\tx valid -> tx {btxIsValid = valid})
 {-# INLINEABLE isValidBabelTxL #-}
 
 deriving instance
-  (Era era, Eq (TxSwaps era), Eq (TxBody era), Eq (TxWits era), Eq (TxAuxData era)) =>
+  ( Era era
+  , Eq (TxBody era)
+  , Eq (TxWits era)
+  , Eq (TxAuxData era)
+  , Eq (Tx era)
+  ) =>
   Eq (BabelTx era)
 
 deriving instance
   ( Era era
-  , Show (TxSwaps era)
   , Show (TxBody era)
   , Show (TxAuxData era)
   , Show (Script era)
   , Show (TxWits era)
+  , Show (Tx era)
   ) =>
   Show (BabelTx era)
 
 instance
   ( Era era
-  , NoThunks (TxSwaps era)
   , NoThunks (TxWits era)
   , NoThunks (TxAuxData era)
   , NoThunks (TxBody era)
+  , NoThunks (Tx era)
   ) =>
   NoThunks (BabelTx era)
 
 instance
   ( Era era
-  , NFData (TxSwaps era)
   , NFData (TxWits era)
   , NFData (TxAuxData era)
   , NFData (TxBody era)
+  , NFData (Tx era)
   ) =>
   NFData (BabelTx era)
 
@@ -249,21 +238,18 @@ instance
 -- | Construct an annotated Babel style transaction.
 babelSegwitTx ::
   BabelEraTx era =>
+  (Seq (TxId (EraCrypto era)) -> Seq (Tx era)) ->
   Annotator (TxBody era) ->
   Annotator (TxWits era) ->
   IsValid ->
   Maybe (Annotator (TxAuxData era)) ->
-  Bool ->
   -- TODO WG these might be wrong
-  Annotator (TxSwaps era) ->
-  Annotator (Strict.Map (TxId (EraCrypto era)) (TxBody era)) ->
+  Maybe (Seq (TxId (EraCrypto era))) ->
   Annotator (Tx era)
-babelSegwitTx txBodyAnn txWitsAnn btxIsValid auxDataAnn btxIsTopLevel subTxsAnn requiredTxsAnn = Annotator $ \bytes ->
+babelSegwitTx mkMap txBodyAnn txWitsAnn btxIsValid auxDataAnn swapsAnn = Annotator $ \bytes ->
   let txBody = runAnnotator txBodyAnn bytes
       txWits = runAnnotator txWitsAnn bytes
       txAuxData = maybeToStrictMaybe (flip runAnnotator bytes <$> auxDataAnn)
-      subTxs = runAnnotator subTxsAnn bytes
-      requiredTxs = runAnnotator requiredTxsAnn bytes
    in mkBasicTx txBody
         & witsTxL
         .~ txWits
@@ -271,12 +257,8 @@ babelSegwitTx txBodyAnn txWitsAnn btxIsValid auxDataAnn btxIsTopLevel subTxsAnn 
         .~ txAuxData
         & isValidTxL
         .~ btxIsValid
-        & isTopLevelTxL
-        .~ btxIsTopLevel
-        & subTxBodiesTxL
-        .~ subTxs
-        & requiredTxBodiesTxL
-        .~ requiredTxs
+        & subTxTxL
+        .~ maybeToStrictMaybe (fmap (forceToStrict . mkMap) swapsAnn)
 
 --------------------------------------------------------------------------------
 -- Mempool Serialisation
@@ -298,11 +280,10 @@ babelSegwitTx txBodyAnn txWitsAnn btxIsValid auxDataAnn btxIsTopLevel subTxsAnn 
 -- computing the transaction size (which omits the `IsValid` field for
 -- compatibility with Mary - see 'toCBORForSizeComputation').
 toCBORForMempoolSubmission ::
-  ( Crypto (EraCrypto era)
-  , EncCBOR (TxBody era)
+  ( EncCBOR (TxBody era)
   , EncCBOR (TxWits era)
   , EncCBOR (TxAuxData era)
-  , EncCBOR (TxSwaps era)
+  , EncCBOR (Tx era)
   ) =>
   BabelTx era ->
   Encoding
@@ -312,9 +293,7 @@ toCBORForMempoolSubmission
     , btxWits
     , btxAuxiliaryData
     , btxIsValid
-    , btxIsTopLevel
     , btxSwaps
-    , btxRequiredTxBodies
     } =
     encode $
       Rec BabelTx
@@ -322,16 +301,14 @@ toCBORForMempoolSubmission
         !> To btxWits
         !> To btxIsValid
         !> E (encodeNullMaybe encCBOR . strictMaybeToMaybe) btxAuxiliaryData
-        !> To btxIsTopLevel
         !> To btxSwaps
-        !> To btxRequiredTxBodies
 
 instance
   ( Era era
-  , EncCBOR (TxSwaps era)
   , EncCBOR (TxBody era)
   , EncCBOR (TxAuxData era)
   , EncCBOR (TxWits era)
+  , EncCBOR (Tx era)
   ) =>
   EncCBOR (BabelTx era)
   where
@@ -339,23 +316,17 @@ instance
 
 instance
   ( Era era
-  , EncCBOR (TxSwaps era)
   , EncCBOR (TxBody era)
   , EncCBOR (TxAuxData era)
   , EncCBOR (TxWits era)
+  , EncCBOR (Tx era)
   ) =>
   ToCBOR (BabelTx era)
   where
   toCBOR = toEraCBOR @era
 
 instance
-  ( Typeable era
-  , DecCBOR (Annotator (TxId (EraCrypto era)))
-  , DecCBOR (Annotator (TxSwaps era))
-  , DecCBOR (Annotator (TxBody era))
-  , DecCBOR (Annotator (TxWits era))
-  , DecCBOR (Annotator (TxAuxData era))
-  ) =>
+  EraTx era =>
   DecCBOR (Annotator (BabelTx era))
   where
   decCBOR =
@@ -368,11 +339,8 @@ instance
           ( sequence . maybeToStrictMaybe
               <$> decodeNullMaybe decCBOR
           )
-        <*! Ann From
-        <*! From
-        <*! D
-          ( decodeMapTraverse decCBOR decCBOR
-          )
+        <*! D (traverse sequence <$> decCBOR)
+  -- <*! Ann From
   {-# INLINE decCBOR #-}
 
 -- =======================================================================
@@ -398,24 +366,20 @@ isTwoPhaseScriptAddressFromMap hashScriptMap addr =
       where
         ok script = hashScript @era script == hash && not (isNativeScript @era script)
 
-babelEqTxRaw :: (BabelEraTx era, EqRaw (TxSwaps era)) => Tx era -> Tx era -> Bool
+babelEqTxRaw ::
+  BabelEraTx era =>
+  Tx era ->
+  Tx era ->
+  Bool
 babelEqTxRaw tx1 tx2 =
   alonzoEqTxRaw tx1 tx2
-    && ( tx1 ^. isTopLevelTxL == tx2 ^. isTopLevelTxL
-          && liftEq2 (==) eqRaw (tx1 ^. subTxBodiesTxL) (tx2 ^. subTxBodiesTxL)
-          && tx1 ^. requiredTxBodiesTxL == tx2 ^. requiredTxBodiesTxL
+    && ( (tx1 ^. subTxTxL) == (tx2 ^. subTxTxL)
        )
 
 instance
-  ( Crypto c
-  , DecCBOR (Annotator (TxId c))
-  , DecCBOR (Annotator (TxSwaps (BabelEra c)))
-  , EncCBOR (TxSwaps (BabelEra c))
-  ) =>
+  Crypto c =>
   Core.EraTx (BabelEra c)
   where
-  {-# SPECIALIZE instance Core.EraTx (BabelEra StandardCrypto) #-}
-
   type Tx (BabelEra c) = BabelTx (BabelEra c)
   type TxUpgradeError (BabelEra c) = Core.TxBodyUpgradeError (BabelEra c)
 
@@ -447,14 +411,32 @@ instance
       <*> pure (upgradeTxWits w)
       <*> pure valid
       <*> pure (fmap upgradeTxAuxData aux)
-      <*> pure True
-      <*> pure mempty
       <*> pure mempty
 
+-- <*> pure valid
+
+mkBabelEraTx ::
+  BabelEraTx era =>
+  TxBody era ->
+  TxWits era ->
+  IsValid ->
+  StrictMaybe (TxAuxData era) ->
+  StrictMaybe (StrictSeq (Tx era)) ->
+  Tx era
+mkBabelEraTx body wits isValid auxData swaps =
+  mkBasicTx body
+    & witsTxL
+    .~ wits
+    & isValidTxL
+    .~ isValid
+    & auxDataTxL
+    .~ auxData
+    & subTxTxL
+    .~ swaps
+
 getBabelMinFeeTx ::
-  ( EraTx era
-  , AlonzoEraTxWits era
-  , ConwayEraPParams era
+  ( ConwayEraPParams era
+  , BabelEraTx era
   ) =>
   PParams era ->
   Tx era ->
@@ -469,12 +451,14 @@ getBabelMinFeeTx pp tx refScriptsSize =
   )
     <+> refScriptsFee
   where
-    allExunits = totExUnits tx
+    allExunits =
+      foldl' (<>) mempty $
+        fmap
+          totExUnits
+          (tx : (concat . maybeToList . strictMaybeToMaybe) (fmap toList (tx ^. subTxTxL)))
     refScriptCostPerByte = unboundRational (pp ^. ppMinFeeRefScriptCostPerByteL)
     refScriptsFee = Coin (floor (fromIntegral @Int @Rational refScriptsSize * refScriptCostPerByte))
 
 instance Crypto c => AlonzoEraTx (BabelEra c) where
-  {-# SPECIALIZE instance AlonzoEraTx (BabelEra StandardCrypto) #-}
-
   isValidTxL = isValidBabelTxL
   {-# INLINE isValidTxL #-}

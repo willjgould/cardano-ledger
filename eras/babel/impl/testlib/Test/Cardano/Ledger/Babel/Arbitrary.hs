@@ -38,6 +38,7 @@ import Cardano.Ledger.Babel.Core
 import Cardano.Ledger.Babel.Genesis (BabelGenesis (..))
 import Cardano.Ledger.Babel.Rules
 import Cardano.Ledger.Babel.Scripts
+import Cardano.Ledger.Babel.Tx
 import Cardano.Ledger.Babel.TxBody (BabelTxBody (BabelTxBody))
 import Cardano.Ledger.Babel.TxCert
 import Cardano.Ledger.Babel.TxInfo (BabelContextError)
@@ -61,6 +62,22 @@ import Test.Cardano.Data.Arbitrary ()
 import Test.Cardano.Ledger.Babbage.Arbitrary ()
 import Test.Cardano.Ledger.Common
 import Test.Cardano.Ledger.Conway.Arbitrary ()
+
+instance
+  ( Arbitrary (Tx era)
+  , Arbitrary (TxWits era)
+  , Arbitrary (TxAuxData era)
+  , Arbitrary (TxBody era)
+  ) =>
+  Arbitrary (BabelTx era)
+  where
+  arbitrary =
+    BabelTx
+      <$> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
+      <*> arbitrary
 
 instance
   ( ConwayEraTxBody era
@@ -141,6 +158,9 @@ instance
   , Arbitrary (Value era)
   , Arbitrary (TxOut era)
   , Arbitrary (PredicateFailure (EraRule "UTXO" era))
+  , Arbitrary (PredicateFailure (EraRule "UTXOW" era))
+  , Arbitrary (PredicateFailure (EraRule "CERTS" era))
+  , Arbitrary (PredicateFailure (EraRule "GOV" era))
   , Arbitrary (PlutusPurpose AsItem era)
   , Arbitrary (PlutusPurpose AsIx era)
   , Arbitrary (TxCert era)
@@ -453,11 +473,35 @@ instance
 
 instance
   ( Era era
+  , EraTxOut era
+  , Arbitrary (PlutusPurpose AsItem era)
+  , Arbitrary (PlutusPurpose AsIx era)
+  , Arbitrary (Value era)
+  , Arbitrary (TxOut era)
+  , Arbitrary (TxCert era)
+  , Arbitrary (PredicateFailure (EraRule "UTXO" era))
   , Arbitrary (PredicateFailure (EraRule "SWAPS" era))
   , Arbitrary (PredicateFailure (EraRule "UTXOW" era))
   , Arbitrary (PredicateFailure (EraRule "CERTS" era))
   , Arbitrary (PredicateFailure (EraRule "GOV" era))
   ) =>
   Arbitrary (BabelLedgerPredFailure era)
+  where
+  arbitrary = genericArbitraryU
+
+instance
+  ( Era era
+  , EraTxOut era
+  , Arbitrary (PlutusPurpose AsItem era)
+  , Arbitrary (PlutusPurpose AsIx era)
+  , Arbitrary (Value era)
+  , Arbitrary (TxOut era)
+  , Arbitrary (TxCert era)
+  , Arbitrary (PredicateFailure (EraRule "LEDGER" era))
+  , Arbitrary (PredicateFailure (EraRule "SWAPS" era))
+  , Arbitrary (PredicateFailure (EraRule "UTXOW" era))
+  , Arbitrary (PredicateFailure (EraRule "CERTS" era))
+  ) =>
+  Arbitrary (BabelLedgersPredFailure era)
   where
   arbitrary = genericArbitraryU

@@ -16,12 +16,16 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Cardano.Ledger.Babel.Rules.Utxos (
   BabelUTXOS,
   BabelUtxosPredFailure (..),
   BabelUtxosEvent (..),
+  BatchData (..),
+  BabelUtxoEnv (..),
+  isTop,
 ) where
 
 import Cardano.Ledger.Alonzo.Plutus.Context (ContextError, EraPlutusContext (..))
@@ -49,31 +53,41 @@ import Cardano.Ledger.Alonzo.TxWits (lookupRedeemer)
 import Cardano.Ledger.Alonzo.UTxO (
   AlonzoEraUTxO (..),
   AlonzoScriptsNeeded (..),
+  getMintingScriptsNeeded,
+  getRewardingScriptsNeeded,
+  getSpendingScriptsNeeded,
+  zipAsIxItem,
  )
 import Cardano.Ledger.Babbage.Collateral (collAdaBalance, collOuts)
 import Cardano.Ledger.Babbage.Rules (
   expectScriptsToPass,
  )
-import Cardano.Ledger.Babel.Scripts ()
+import Cardano.Ledger.Babel.Scripts
 
+import Cardano.Ledger.Address (Addr (..))
 import Cardano.Ledger.Babbage.Tx
 import Cardano.Ledger.Babel.Core
 import Cardano.Ledger.Babel.Era (BabelEra, BabelUTXOS)
-import Cardano.Ledger.Babel.TxBody (ConwayEraTxBody (..))
+import Cardano.Ledger.Babel.TxBody (BabelEraTxBody (..))
 import Cardano.Ledger.Babel.TxInfo ()
 import Cardano.Ledger.BaseTypes
 import Cardano.Ledger.Binary (
   DecCBOR (..),
   EncCBOR (..),
+  Sized (..),
  )
 import Cardano.Ledger.Binary.Coders
 import Cardano.Ledger.CertState (certsTotalDepositsTxBody, certsTotalRefundsTxBody)
 import Cardano.Ledger.Coin (Coin (Coin), DeltaCoin (..))
-import Cardano.Ledger.Conway.Core (ConwayEraPParams)
+import Cardano.Ledger.Conway.Core
 import Cardano.Ledger.Conway.Governance (
   ConwayGovState (..),
+  GovAction (..),
+  ProposalProcedure (..),
+  Voter (..),
+  VotingProcedures (..),
  )
-import Cardano.Ledger.Conway.Scripts (ConwayEraScript)
+import Cardano.Ledger.Credential (Credential (..), credScriptHash)
 import Cardano.Ledger.Plutus (
   PlutusWithContext (..),
   ScriptFailure (..),
@@ -88,26 +102,49 @@ import Cardano.Ledger.Shelley.LedgerState (
   updateStakeDistribution,
   utxosDonationL,
  )
-import Cardano.Ledger.Shelley.Rules (UtxoEnv (..))
 import Cardano.Ledger.Slot (EpochInfo)
-import Cardano.Ledger.UTxO (EraUTxO (..), ScriptsProvided (..), UTxO (UTxO, unUTxO))
+import Cardano.Ledger.TxIn (TxId)
+import Cardano.Ledger.UTxO (EraUTxO (..), ScriptsProvided (..), UTxO (UTxO, unUTxO), getScriptHash)
 import Cardano.Ledger.Val ((<->))
 import Cardano.Slotting.Time (SystemStart)
 import Control.DeepSeq (NFData)
-import Control.Monad (guard)
+import Control.Monad (guard, when)
 import Control.Monad.Trans.Reader (asks)
 import Control.State.Transition.Extended
+import Data.Foldable (Foldable (..))
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import qualified Data.Map as Map
 import Data.MapExtras (extractKeys)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (catMaybes, mapMaybe)
+import Data.Sequence (mapWithIndex)
+import qualified Data.Sequence as Seq
+import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Debug.Trace (traceEvent)
 import GHC.Generics (Generic)
 import Lens.Micro
+import Lens.Micro.Extras (view)
 import NoThunks.Class (NoThunks)
-import PlutusLedgerApi.V4 ()
+
+data BatchData era -- or some better name
+  = OldTransaction
+  | NormalTransaction
+  | Batch (TxId (EraCrypto era)) IsValid -- meaning batch valid
+  deriving (Eq)
+
+isTop :: EraTx era => BatchData era -> Tx era -> Bool
+isTop (Batch tid _) tx = tid == txIdTx tx
+isTop _ _ = False
+
+data BabelUtxoEnv era = BabelUtxoEnv
+  { bueSlot :: SlotNo
+  , buePParams :: PParams era
+  , bueCertState :: CertState era
+  , bueRequiredBatchObservers :: Set.Set (ScriptHash (EraCrypto era))
+  , bueBatchData :: BatchData era
+  }
+  deriving (Generic)
 
 data BabelUtxosPredFailure era
   = -- | The 'isValid' tag on the transaction is incorrect. The tag given
@@ -246,11 +283,13 @@ instance
   , InjectRuleFailure "UTXOS" AlonzoUtxosPredFailure era
   , InjectRuleEvent "UTXOS" AlonzoUtxosEvent era
   , InjectRuleEvent "UTXOS" BabelUtxosEvent era
+  , BabelEraTxBody era
+  , BabelEraScript era
   ) =>
   STS (BabelUTXOS era)
   where
   type BaseM (BabelUTXOS era) = Cardano.Ledger.BaseTypes.ShelleyBase
-  type Environment (BabelUTXOS era) = UtxoEnv era
+  type Environment (BabelUTXOS era) = BabelUtxoEnv era
   type State (BabelUTXOS era) = UTxOState era
   type Signal (BabelUTXOS era) = Tx era
   type PredicateFailure (BabelUTXOS era) = BabelUtxosPredFailure era
@@ -267,7 +306,7 @@ utxosTransition ::
   , ScriptsNeeded era ~ AlonzoScriptsNeeded era
   , Signal (EraRule "UTXOS" era) ~ Tx era
   , STS (EraRule "UTXOS" era)
-  , Environment (EraRule "UTXOS" era) ~ UtxoEnv era
+  , Environment (EraRule "UTXOS" era) ~ BabelUtxoEnv era
   , State (EraRule "UTXOS" era) ~ UTxOState era
   , InjectRuleFailure "UTXOS" AlonzoUtxosPredFailure era
   , BaseM (EraRule "UTXOS" era) ~ ShelleyBase
@@ -275,13 +314,15 @@ utxosTransition ::
   , InjectRuleEvent "UTXOS" BabelUtxosEvent era
   , Event (EraRule "UTXOS" era) ~ BabelUtxosEvent era
   , PredicateFailure (EraRule "UTXOS" era) ~ BabelUtxosPredFailure era
+  , BabelEraTxBody era
+  , BabelEraScript era
   ) =>
   TransitionRule (EraRule "UTXOS" era)
 utxosTransition =
-  judgmentContext >>= \(TRC (_, _, tx)) -> do
-    case tx ^. isValidTxL of
-      IsValid True -> babelEvalScriptsTxValid
-      IsValid False -> babelEvalScriptsTxInvalid
+  judgmentContext >>= \(TRC (BabelUtxoEnv _ _ _ _ batchData, _, tx)) -> do
+    if validPath batchData tx
+      then babelEvalScriptsTxValid
+      else babelEvalScriptsTxInvalid
 
 babelEvalScriptsTxValid ::
   forall era.
@@ -293,15 +334,16 @@ babelEvalScriptsTxValid ::
   , Signal (EraRule "UTXOS" era) ~ Tx era
   , STS (EraRule "UTXOS" era)
   , State (EraRule "UTXOS" era) ~ UTxOState era
-  , Environment (EraRule "UTXOS" era) ~ UtxoEnv era
+  , Environment (EraRule "UTXOS" era) ~ BabelUtxoEnv era
   , InjectRuleFailure "UTXOS" AlonzoUtxosPredFailure era
   , BaseM (EraRule "UTXOS" era) ~ ShelleyBase
   , InjectRuleEvent "UTXOS" AlonzoUtxosEvent era
   , InjectRuleEvent "UTXOS" BabelUtxosEvent era
+  , BabelEraTxBody era
   ) =>
   TransitionRule (EraRule "UTXOS" era)
 babelEvalScriptsTxValid = do
-  TRC (UtxoEnv _ pp certState, utxos@(UTxOState utxo _ _ govState _ _), tx) <-
+  TRC (BabelUtxoEnv _ pp certState _bobs _, utxos@(UTxOState utxo _ _ govState _ _), tx) <-
     judgmentContext
   let txBody = tx ^. bodyTxL
 
@@ -327,7 +369,7 @@ babelEvalScriptsTxValid = do
 -- be called on the @deposit - refund@ change, which is normally used to emit the
 -- `TotalDeposits` event.
 updateUTxOState ::
-  (ConwayEraTxBody era, Monad m) =>
+  (Monad m, BabelEraTxBody era) =>
   PParams era ->
   UTxOState era ->
   TxBody era ->
@@ -347,7 +389,7 @@ updateUTxOState pp utxos txBody certState govState depositChangeEvent txUtxODiff
       UTxO utxo = utxosUtxo
       !utxoAdd = txouts txBody -- These will be inserted into the UTxO
       {- utxoDel  = txins txb ◁ utxo -}
-      !(utxoWithout, utxoDel) = extractKeys utxo (txBody ^. inputsTxBodyL)
+      !(utxoWithout, utxoDel) = extractKeys utxo ((txBody ^. inputsTxBodyL) `Set.union` (txBody ^. corInputsTxBodyL)) -- TODO WG Check this is correct
       {- newUTxO = (txins txb ⋪ utxo) ∪ outs txb -}
       newUTxO = utxoWithout `Map.union` unUTxO utxoAdd
       {- utxoDel  = txins txb ◁ utxo -}
@@ -375,18 +417,19 @@ babelEvalScriptsTxInvalid ::
   , EraPlutusContext era
   , AlonzoEraUTxO era
   , STS (EraRule "UTXOS" era)
-  , Environment (EraRule "UTXOS" era) ~ UtxoEnv era
+  , Environment (EraRule "UTXOS" era) ~ BabelUtxoEnv era
   , Signal (EraRule "UTXOS" era) ~ Tx era
   , State (EraRule "UTXOS" era) ~ UTxOState era
   , BaseM (EraRule "UTXOS" era) ~ ShelleyBase
   , Event (EraRule "UTXOS" era) ~ BabelUtxosEvent era
   , PredicateFailure (EraRule "UTXOS" era) ~ BabelUtxosPredFailure era
-  , ScriptsNeeded era ~ AlonzoScriptsNeeded era
   , ConwayEraTxBody era
+  , BabelEraScript era
+  , BabelEraTxBody era
   ) =>
   TransitionRule (EraRule "UTXOS" era)
 babelEvalScriptsTxInvalid = do
-  TRC (UtxoEnv _ pp _, us@(UTxOState utxo _ fees _ _ _), tx) <- judgmentContext
+  TRC (BabelUtxoEnv _ pp _ _bobs batchData, us@(UTxOState utxo _ fees _ _ _), tx) <- judgmentContext
   {- txb := txbody tx -}
   let txBody = tx ^. bodyTxL
   sysSt <- liftSTS $ asks systemStart
@@ -394,15 +437,16 @@ babelEvalScriptsTxInvalid = do
 
   () <- pure $! traceEvent invalidBegin ()
 
-  case collectPlutusScriptsWithContextFrxo ei sysSt pp tx utxo of
+  case collectPlutusScriptsWithContext batchData ei sysSt pp tx utxo of
     Right sLst ->
       {- sLst := collectTwoPhaseScriptInputs pp tx utxo -}
       {- isValid tx = evalScripts tx sLst = False -}
       whenFailureFree $
         when2Phase $ case evalPlutusScripts tx sLst of
           Passes _ ->
-            failBecause $
-              ValidationTagMismatch (tx ^. isValidTxL) PassedUnexpectedly
+            when (IsValid False == tx ^. isValidTxL) $
+              failBecause $
+                ValidationTagMismatch (tx ^. isValidTxL) PassedUnexpectedly
           Fails ps fs -> do
             mapM_ (tellEvent . SuccessfulPlutusScriptsEvent @era) (nonEmpty ps)
             tellEvent (FailedPlutusScriptsEvent (scriptFailurePlutus <$> fs))
@@ -415,33 +459,41 @@ babelEvalScriptsTxInvalid = do
   let !(utxoKeep, utxoDel) = extractKeys (unUTxO utxo) (txBody ^. collateralInputsTxBodyL)
       UTxO collouts = collOuts txBody
       DeltaCoin collateralFees = collAdaBalance txBody utxoDel -- NEW to Babbage
-  pure $!
-    us {- (collInputs txb ⋪ utxo) ∪ collouts tx -}
-      { utxosUtxo = UTxO (Map.union utxoKeep collouts) -- NEW to Babbage
-      {- fees + collateralFees -}
-      , utxosFees = fees <> Coin collateralFees -- NEW to Babbage
-      , utxosStakeDistr = updateStakeDistribution pp (utxosStakeDistr us) (UTxO utxoDel) (UTxO collouts)
-      }
+  if isTop batchData tx
+    then
+      pure $!
+        us {- (collInputs txb ⋪ utxo) ∪ collouts tx -}
+          { utxosUtxo = UTxO (Map.union utxoKeep collouts) -- NEW to Babbage
+          {- fees + collateralFees -}
+          , utxosFees = fees <> Coin collateralFees -- NEW to Babbage
+          , utxosStakeDistr = updateStakeDistribution pp (utxosStakeDistr us) (UTxO utxoDel) (UTxO collouts)
+          }
+    else pure us
 
 -- To Babel Fees implementers: This function is NOT in the right place.
 -- Given more time, I'd do something with the EraUTxO class.
-collectPlutusScriptsWithContextFrxo ::
+collectPlutusScriptsWithContext ::
   forall era.
   ( AlonzoEraTxWits era
   , AlonzoEraUTxO era
   , EraPlutusContext era
   , ConwayEraTxBody era
-  , ScriptsNeeded era ~ AlonzoScriptsNeeded era
+  , BabelEraScript era
+  , BabelEraTxBody era
   ) =>
+  BatchData era ->
   EpochInfo (Either Text) ->
   SystemStart ->
   PParams era ->
   Tx era ->
   UTxO era ->
   Either [CollectError era] [PlutusWithContext (EraCrypto era)]
-collectPlutusScriptsWithContextFrxo epochInfo sysStart pp tx utxo =
+collectPlutusScriptsWithContext batchData epochInfo sysStart pp tx utxo =
   -- TODO: remove this whole complicated check when we get into Conway. It is much simpler
   -- to fail on a CostModel lookup in the `apply` function (already implemented).
+  {- languages tx utxo ⊆ dom(costmdls pp) -}
+  -- This check is checked when building the TxInfo using collectTwoPhaseScriptInputs, if it fails
+  -- It raises 'NoCostModel' a construcotr of the predicate failure 'CollectError'.
   let missingCostModels = Set.filter (`Map.notMember` costModels) usedLanguages
    in case guard (protVerMajor < natVersion @9) >> Set.lookupMin missingCostModels of
         Just l -> Left [NoCostModel l]
@@ -461,7 +513,7 @@ collectPlutusScriptsWithContextFrxo epochInfo sysStart pp tx utxo =
     costModels = costModelsValid $ pp ^. ppCostModelsL
 
     ScriptsProvided scriptsProvided = getScriptsProvided utxo tx
-    AlonzoScriptsNeeded scriptsNeeded = getScriptsNeeded utxo (tx ^. bodyTxL)
+    AlonzoScriptsNeeded scriptsNeeded = hackyGetScriptsNeeded batchData utxo (tx ^. bodyTxL)
     neededPlutusScripts =
       mapMaybe (\(sp, sh) -> (,) (sh, sp) <$> lookupPlutusScript scriptsProvided sh) scriptsNeeded
     usedLanguages = Set.fromList $ map (plutusScriptLanguage . snd) neededPlutusScripts
@@ -489,15 +541,177 @@ collectPlutusScriptsWithContextFrxo epochInfo sysStart pp tx utxo =
                     , pwcCostModel = costModel
                     }
         Left te -> Left $ BadTranslation te
-    merge :: forall t b a. (t -> Either a b) -> [Either a t] -> Either [a] [b] -> Either [a] [b]
-    merge _f [] answer = answer
-    merge f (x : xs) zs = merge f xs (gg x zs)
+
+-- isOld :: BatchData era -> Bool
+-- isOld OldTransaction = True
+-- isOld _ = False
+
+-- TODO: check this
+-- allowedLanguages ::
+--   (EraTx era, EraUTxO era) => BatchData era -> Tx era -> UTxO era -> Set.Set Language
+-- allowedLanguages bd tx (UTxO utxo)
+--   | any (isBootstrapAddr . fst) os = Set.empty
+--   | usesV3Features txb = Set.fromList [PlutusV3]
+--   | any hasInlineDatum os = Set.fromList [PlutusV2, PlutusV3]
+--   | isOld bd = Set.fromList [PlutusV2, PlutusV3, PlutusV4]
+--   | otherwise = Set.fromList [PlutusV1, PlutusV2, PlutusV3, PlutusV4]
+--   where
+--     txb = tx ^. bodyTxL
+--     os = Set.union (range $ outs txb) (range $ utxo `restrictKeys` (txins `Set.union` refInputs))
+
+--     outs = tx ^. bodyTxL . txOutsTxBodyL
+--     txins = tx ^. bodyTxL . inputsTxBodyL
+--     refInputs = tx ^. bodyTxL . referenceInputsTxBodyL
+
+-- collectPhaseTwoScriptInputs' : BatchData → PParams → Tx → UTxO → (ScriptPurpose × ScriptHash)
+--   → Maybe (Script × List Data × ExUnits × CostModel)
+-- collectPhaseTwoScriptInputs' bd pp tx utxo (sp , sh)
+--   with lookupScriptHash sh tx utxo
+-- ... | nothing = nothing
+-- ... | just s
+--   with isInj₂ s | indexedRdmrs tx sp
+-- ... | just p2s | just (rdmr , eu)
+--     = just (s ,
+--         ( (getDatum tx utxo sp ++ rdmr ∷ valContext (txInfo (language p2s) sp pp utxo tx) sp ∷ [])
+--         , eu
+--         , PParams.costmdls pp)
+--       )
+-- ... | x | y = nothing
+
+-- collectPhaseTwoScriptInputs : BatchData → PParams → Tx → UTxO
+--   → List (Script × List Data × ExUnits × CostModel)
+-- collectPhaseTwoScriptInputs bd pp tx utxo
+--   = setToList
+--   $ mapPartial (collectPhaseTwoScriptInputs' bd pp tx utxo)
+--   $ scriptsNeeded bd utxo tx
+
+-- | Merge two lists (the first of which may have failures, i.e. (Left _)), collect all the failures
+--   but if there are none, use 'f' to construct a success.
+merge :: forall t b a. (t -> Either a b) -> [Either a t] -> Either [a] [b] -> Either [a] [b]
+merge _f [] answer = answer
+merge f (x : xs) zs = merge f xs (gg x zs)
+  where
+    gg :: Either a t -> Either [a] [b] -> Either [a] [b]
+    gg (Right t) (Right cs) =
+      case f t of
+        Right c -> Right $ c : cs
+        Left e -> Left [e]
+    gg (Left a) (Right _) = Left [a]
+    gg (Right _) (Left cs) = Left cs
+    gg (Left a) (Left cs) = Left (a : cs)
+
+-- TODO WG: I think you need to use this in UTXOW as well.
+hackyGetScriptsNeeded ::
+  (ConwayEraTxBody era, BabelEraScript era, BabelEraTxBody era) =>
+  BatchData era ->
+  UTxO era ->
+  TxBody era ->
+  AlonzoScriptsNeeded era
+hackyGetScriptsNeeded batchData utxo txBody =
+  getSpendingScriptsNeeded utxo txBody
+    <> getRewardingScriptsNeeded txBody
+    <> certifyingScriptsNeeded
+    <> getMintingScriptsNeeded txBody
+    <> votingScriptsNeeded
+    <> proposingScriptsNeeded
+    <> getBatchObserverScriptsNeeded batchData txBody
+    <> getSpendOutScriptsNeeded
+      ( Map.fromList . toList $
+          mapWithIndex
+            (\i txOut -> (TxIx $ fromIntegral i, txOut))
+            (sizedValue <$> (Seq.fromList . toList) (txBody ^. spendOutsTxBodyL)) -- mapPartial spendOutScripts (proj₁ spendOuts)
+      )
+  where
+    certifyingScriptsNeeded =
+      AlonzoScriptsNeeded $
+        catMaybes $
+          zipAsIxItem (txBody ^. certsTxBodyL) $
+            \asIxItem@(AsIxItem _ txCert) ->
+              (CertifyingPurpose asIxItem,) <$> getScriptWitnessTxCert txCert
+
+    votingScriptsNeeded =
+      AlonzoScriptsNeeded $
+        catMaybes $
+          zipAsIxItem (Map.keys (unVotingProcedures (txBody ^. votingProceduresTxBodyL))) $
+            \asIxItem@(AsIxItem _ voter) ->
+              (VotingPurpose asIxItem,) <$> getVoterScriptHash voter
       where
-        gg :: Either a t -> Either [a] [b] -> Either [a] [b]
-        gg (Right t) (Right cs) =
-          case f t of
-            Right c -> Right $ c : cs
-            Left e -> Left [e]
-        gg (Left a) (Right _) = Left [a]
-        gg (Right _) (Left cs) = Left cs
-        gg (Left a) (Left cs) = Left (a : cs)
+        getVoterScriptHash = \case
+          CommitteeVoter cred -> credScriptHash cred
+          DRepVoter cred -> credScriptHash cred
+          StakePoolVoter _ -> Nothing
+
+    proposingScriptsNeeded =
+      AlonzoScriptsNeeded $
+        catMaybes $
+          zipAsIxItem (txBody ^. proposalProceduresTxBodyL) $
+            \asIxItem@(AsIxItem _ proposal) ->
+              (ProposingPurpose asIxItem,) <$> getProposalScriptHash proposal
+      where
+        getProposalScriptHash ProposalProcedure {pProcGovAction} =
+          case pProcGovAction of
+            ParameterChange _ _ (SJust govPolicyHash) -> Just govPolicyHash
+            TreasuryWithdrawals _ (SJust govPolicyHash) -> Just govPolicyHash
+            _ -> Nothing
+
+getBatchObserverScriptsNeeded ::
+  (BabelEraScript era, BabelEraTxBody era) =>
+  BatchData era ->
+  TxBody era ->
+  AlonzoScriptsNeeded era
+getBatchObserverScriptsNeeded batchData txBody =
+  AlonzoScriptsNeeded $
+    catMaybes $
+      zipAsIxItem (getBOs batchData txBody) $
+        \asIxItem@(AsIxItem _ batchObsHash) -> do
+          pure (BatchObsPurpose asIxItem, batchObsHash)
+{-# INLINEABLE getBatchObserverScriptsNeeded #-}
+
+getSpendOutScriptsNeeded ::
+  (EraTxBody era, BabelEraScript era) =>
+  Map.Map TxIx (TxOut era) ->
+  AlonzoScriptsNeeded era
+getSpendOutScriptsNeeded spendOuts =
+  AlonzoScriptsNeeded $
+    catMaybes $
+      zipAsIxItem (Map.keys spendOuts) $ -- (catMaybes $ fmap scriptOutWithHashNoIn $ toList spendOuts) $
+        \asIxItem@(AsIxItem _ spendOut) -> do
+          (SpendOutPurpose asIxItem,) <$> scriptOutWithHashNoIn (spendOuts Map.! spendOut)
+{-# INLINEABLE getSpendOutScriptsNeeded #-}
+
+-- Agda for reference:
+-- data isScript : Credential → Type where
+--   SHisScript : (sh : ScriptHash) → isScript (ScriptObj sh)
+-- isScriptAddr     = isScript ∘ payCred
+
+isScriptAddr :: Addr c -> Bool
+isScriptAddr (Addr _ (ScriptHashObj _) _) = True
+isScriptAddr _ = False
+
+scriptOutWithHashNoIn :: EraTxOut era => TxOut era -> Maybe (ScriptHash (EraCrypto era))
+scriptOutWithHashNoIn (view addrTxOutL -> addr) =
+  if isScriptAddr addr
+    then getScriptHash addr
+    else Nothing
+
+-- spendOutScripts :: (TxIx, TxOut era) -> Maybe (ScriptPurpose, ScriptHash (EraCrypto era))
+-- spendOutScripts (x, o) = case (x, scriptOutWithHashNoIn o) of
+--   (x, Just jo) -> Just (SpendOut x, jo)
+--   (x, Nothing) -> Nothing
+
+-- only return batch observer scripts if this is a full batch, and the transaction is top-level
+getBOs ::
+  BabelEraTxBody era =>
+  BatchData era ->
+  TxBody era ->
+  Set (ScriptHash (EraCrypto era))
+getBOs (Batch tid _) body =
+  if tid == txIdTxBody body
+    then body ^. requireBatchObserversTxBodyL
+    else mempty
+getBOs _ _ = mempty
+
+validPath :: AlonzoEraTx era => BatchData era -> Tx era -> Bool
+validPath (Batch _ (IsValid b)) _ = b
+validPath NormalTransaction tx = IsValid True == (tx ^. isValidTxL)
+validPath OldTransaction tx = IsValid True == (tx ^. isValidTxL)

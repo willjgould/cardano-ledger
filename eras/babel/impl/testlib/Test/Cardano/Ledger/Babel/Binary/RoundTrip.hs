@@ -103,4 +103,5 @@ instance Crypto c => RuleListEra (BabelEra c) where
        , "UTXO"
        , "LEDGERS"
        , "POOL"
+       , "SWAPS"
        ]

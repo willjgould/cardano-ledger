@@ -23,14 +23,13 @@ import Cardano.Ledger.Alonzo.Rules (
  )
 import Cardano.Ledger.Babel.Era (BabelEra)
 import Cardano.Ledger.Babel.Rules.Ledger (BabelLedgerPredFailure)
-import Cardano.Ledger.Babel.Rules.Ledgers ()
+import Cardano.Ledger.Babel.Rules.Ledgers (BabelLedgersPredFailure)
 import Cardano.Ledger.Babel.Rules.Swaps (BabelSwapsPredFailure)
 import Cardano.Ledger.Babel.Rules.Utxo (BabelUtxoPredFailure)
 import Cardano.Ledger.Babel.Rules.Utxow (BabelUtxowPredFailure)
 import Cardano.Ledger.Core
 import Cardano.Ledger.Shelley.Rules (
   ShelleyBbodyPredFailure (LedgersFailure),
-  ShelleyLedgersPredFailure,
  )
 
 type instance EraRuleFailure "BBODY" (BabelEra c) = AlonzoBbodyPredFailure (BabelEra c)
@@ -42,7 +41,7 @@ instance InjectRuleFailure "BBODY" AlonzoBbodyPredFailure (BabelEra c)
 instance InjectRuleFailure "BBODY" BabelSwapsPredFailure (BabelEra c) where
   injectFailure = ShelleyInAlonzoBbodyPredFailure . LedgersFailure . injectFailure
 
-instance InjectRuleFailure "BBODY" ShelleyLedgersPredFailure (BabelEra c) where
+instance InjectRuleFailure "BBODY" BabelLedgersPredFailure (BabelEra c) where
   injectFailure = ShelleyInAlonzoBbodyPredFailure . LedgersFailure . injectFailure
 
 instance InjectRuleFailure "BBODY" BabelLedgerPredFailure (BabelEra c) where
@@ -110,40 +109,42 @@ instance InjectRuleFailure "BBODY" BabelUtxoPredFailure (BabelEra c) where
 --   ) =>
 --   TransitionRule (BabelBBODY era)
 -- bbodyTransition =
---   judgmentContext
---     >>= \( TRC
---             ( BbodyEnv pp account
---               , BbodyState ls b
---               , UnserialisedBlock bhview txsSeq
---               )
---           ) -> do
---         let txs = fromTxSeq txsSeq
---             actualBodySize = bBodySize (pp ^. ppProtocolVersionL) txsSeq
---             actualBodyHash = hashTxSeq txsSeq
+--   let calculateTxs currentTx = filter (\tx -> hash tx `elem` currentTx ^. subTxIds) allTxs
+--    in judgmentContext
+--         >>= \( TRC
+--                 ( BbodyEnv pp account
+--                   , BbodyState ls b
+--                   , UnserialisedBlock bhview txsSeq
+--                   )
+--               ) -> do
+--             -- Check that all txs that look like subTxs (have a Nothing subTxs field) are actually referenced
+--             let txs = fromTxSeq txsSeq
+--                 actualBodySize = bBodySize (pp ^. ppProtocolVersionL) txsSeq
+--                 actualBodyHash = hashTxSeq txsSeq
 
---         actualBodySize
---           == fromIntegral (bhviewBSize bhview)
---             ?! WrongBlockBodySizeBBODY actualBodySize (fromIntegral $ bhviewBSize bhview)
+--             actualBodySize
+--               == fromIntegral (bhviewBSize bhview)
+--                 ?! WrongBlockBodySizeBBODY actualBodySize (fromIntegral $ bhviewBSize bhview)
 
---         actualBodyHash
---           == bhviewBHash bhview
---             ?! InvalidBodyHashBBODY actualBodyHash (bhviewBHash bhview)
+--             actualBodyHash
+--               == bhviewBHash bhview
+--                 ?! InvalidBodyHashBBODY actualBodyHash (bhviewBHash bhview)
 
---         ls' <-
---           trans @(EraRule "LEDGERS" era) $
---             TRC (LedgersEnv (bhviewSlot bhview) pp account, ls, StrictSeq.fromStrict txs)
+--             ls' <-
+--               trans @(EraRule "LEDGERS" era) $
+--                 TRC (LedgersEnv (bhviewSlot bhview) pp account, ls, StrictSeq.fromStrict txs)
 
---         -- Note that this may not actually be a stake pool - it could be a genesis key
---         -- delegate. However, this would only entail an overhead of 7 counts, and it's
---         -- easier than differentiating here.
---         let hkAsStakePool = coerceKeyRole $ bhviewID bhview
---             slot = bhviewSlot bhview
---         firstSlotNo <- liftSTS $ do
---           ei <- asks epochInfoPure
---           e <- epochInfoEpoch ei slot
---           epochInfoFirst ei e
---         let isOverlay = isOverlaySlot firstSlotNo (pp ^. ppDG) slot
---         pure $ BbodyState ls' (incrBlocks isOverlay hkAsStakePool b)
+--             -- Note that this may not actually be a stake pool - it could be a genesis key
+--             -- delegate. However, this would only entail an overhead of 7 counts, and it's
+--             -- easier than differentiating here.
+--             let hkAsStakePool = coerceKeyRole $ bhviewID bhview
+--                 slot = bhviewSlot bhview
+--             firstSlotNo <- liftSTS $ do
+--               ei <- asks epochInfoPure
+--               e <- epochInfoEpoch ei slot
+--               epochInfoFirst ei e
+--             let isOverlay = isOverlaySlot firstSlotNo (pp ^. ppDG) slot
+--             pure $ BbodyState ls' (incrBlocks isOverlay hkAsStakePool b)
 
 -- instance
 --   forall era ledgers.

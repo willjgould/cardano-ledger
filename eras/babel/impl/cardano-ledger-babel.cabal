@@ -34,7 +34,6 @@ library
         Cardano.Ledger.Babel.Genesis
         Cardano.Ledger.Babel.PParams
         Cardano.Ledger.Babel.Scripts
-        Cardano.Ledger.Babel.Swap
         Cardano.Ledger.Babel.Tx
         Cardano.Ledger.Babel.TxBody
         Cardano.Ledger.Babel.TxInfo

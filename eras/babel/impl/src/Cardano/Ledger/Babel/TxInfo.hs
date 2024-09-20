@@ -53,6 +53,7 @@ import Cardano.Ledger.BaseTypes (
   Inject (..),
   ProtVer (..),
   StrictMaybe (..),
+  TxIx (TxIx),
   getVersion64,
   isSJust,
   kindObject,
@@ -146,6 +147,8 @@ data BabelContextError era
   | VotingProceduresFieldNotSupported !(VotingProcedures era)
   | ProposalProceduresFieldNotSupported !(OSet.OSet (ProposalProcedure era))
   | TreasuryDonationFieldNotSupported !Coin
+  | SpendOutFieldNotSupported !TxIx
+  | BatchObsFieldNotSupported !(ScriptHash (EraCrypto era))
   deriving (Generic)
 
 deriving instance
@@ -200,6 +203,7 @@ instance
   where
   encCBOR = \case
     -- We start at tag 8, just in case to avoid clashes with previous eras.
+    -- TODO WG: Starting at 17 to avoid clashes with previous eras would be in line with this comment?
     BabbageContextError babbageContextError ->
       encode $ Sum BabbageContextError 8 !> To babbageContextError
     CertificateNotSupported txCert ->
@@ -214,6 +218,10 @@ instance
       encode $ Sum ProposalProceduresFieldNotSupported 13 !> To proposalProcedures
     TreasuryDonationFieldNotSupported coin ->
       encode $ Sum TreasuryDonationFieldNotSupported 14 !> To coin
+    SpendOutFieldNotSupported txIx ->
+      encode $ Sum SpendOutFieldNotSupported 15 !> To txIx
+    BatchObsFieldNotSupported scriptHash ->
+      encode $ Sum (BatchObsFieldNotSupported @era) 16 !> To scriptHash
 
 instance
   ( EraPParams era
@@ -263,6 +271,14 @@ instance
       kindObject
         "TreasuryDonationFieldNotSupported"
         ["treasury_donation" .= toJSON coin]
+    SpendOutFieldNotSupported txIx ->
+      kindObject
+        "SpendOutFieldNotSupported"
+        ["spend_out" .= toJSON txIx]
+    BatchObsFieldNotSupported scriptHash ->
+      kindObject
+        "BatchObsFieldNotSupported"
+        ["batch_obs" .= toJSON scriptHash]
 
 -- | Given a TxOut, translate it for V2 and return (Right transalation).
 -- If the transaction contains any Byron addresses or Babbage features, return Left.
@@ -561,7 +577,10 @@ transDRep = \case
 -- `Ord` instances for types that dictate the order, so it might not be a good idea to pass
 -- that information to Plutus for those purposes.
 transScriptPurpose ::
-  (ConwayEraPlutusTxInfo l era, PlutusTxCert l ~ PV3.TxCert) =>
+  ( ConwayEraPlutusTxInfo l era
+  , PlutusTxCert l ~ PV3.TxCert
+  , ContextError era ~ BabelContextError era
+  ) =>
   proxy l ->
   BabelPlutusPurpose AsIxItem era ->
   Either (ContextError era) PV3.ScriptPurpose
@@ -574,6 +593,8 @@ transScriptPurpose proxy = \case
   BabelVoting (AsIxItem _ voter) -> pure $ PV3.Voting (transVoter voter)
   BabelProposing (AsIxItem ix proposal) ->
     pure $ PV3.Proposing (toInteger ix) (transProposal proxy proposal)
+  BabelSpendOut (AsIxItem _ txIx) -> Left (SpendOutFieldNotSupported txIx)
+  BabelBatchObs (AsIxItem _ sh) -> Left (BatchObsFieldNotSupported sh)
 
 transVoter :: Voter c -> PV3.Voter
 transVoter = \case
@@ -717,9 +738,7 @@ instance Crypto c => EraPlutusTxInfo 'PlutusV4 (BabelEra c) where
             case txBody ^. treasuryDonationTxBodyL of
               Coin 0 -> Nothing
               coin -> Just $ transCoinToLovelace coin
-        , PV4.txInfoFulfills = mempty
-        , PV4.txInfoRequests = mempty
-        , PV4.txInfoRequiredTxs = mempty
+        , PV4.txInfoBatchInfo = mempty
         }
     where
       txBody = tx ^. bodyTxL
@@ -758,7 +777,8 @@ fromScriptPurposeV4 = \case
   PV4.Certifying index txCert -> PV4.CertifyingScript index txCert
   PV4.Voting voter -> PV4.VotingScript voter
   PV4.Proposing index proposal -> PV4.ProposingScript index proposal
-  PV4.Fulfills fulfills -> PV4.FulfillsScript fulfills
+  PV4.SpendOut ix -> PV4.SpendOutScript ix
+  PV4.BatchObs scriptHash -> PV4.BatchObsScript scriptHash
 
 transTxCertV4 :: BabelEraTxCert era => TxCert era -> PV4.TxCert
 transTxCertV4 = \case
@@ -831,6 +851,8 @@ transScriptPurposeV4 proxy = \case
   BabelVoting (AsIxItem _ voter) -> pure $ PV4.Voting (transVoterV4 voter)
   BabelProposing (AsIxItem ix proposal) ->
     pure $ PV4.Proposing (toInteger ix) (transProposalV4 proxy proposal)
+  BabelSpendOut (AsIxItem _ (TxIx txIx)) -> pure $ PV4.SpendOut (toInteger txIx)
+  BabelBatchObs (AsIxItem _ sh) -> pure $ PV4.BatchObs (transScriptHash sh)
 
 transVoterV4 :: Voter c -> PV4.Voter
 transVoterV4 = \case

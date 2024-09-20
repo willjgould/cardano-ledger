@@ -19,6 +19,9 @@ module Cardano.Ledger.Babel.Scripts (
   PlutusScript (..),
   isPlutusScript,
   BabelPlutusPurpose (..),
+  BabelEraScript (..),
+  pattern BatchObsPurpose,
+  pattern SpendOutPurpose,
 )
 where
 
@@ -53,7 +56,7 @@ import Cardano.Ledger.Crypto
 import Cardano.Ledger.Mary.Value (PolicyID)
 import Cardano.Ledger.Plutus.Language
 import Cardano.Ledger.SafeHash (SafeToHash (..))
-import Cardano.Ledger.TxIn (TxIn)
+import Cardano.Ledger.TxIn (TxIn, TxIx)
 import Control.DeepSeq (NFData (..), rwhnf)
 import Data.Aeson (ToJSON (..), (.=))
 import Data.Typeable
@@ -121,6 +124,8 @@ instance Crypto c => AlonzoEraScript (BabelEra c) where
     BabelRewarding x -> BabelRewarding $ f x
     BabelVoting x -> BabelVoting $ f x
     BabelProposing x -> BabelProposing $ f x
+    BabelSpendOut x -> BabelSpendOut $ f x
+    BabelBatchObs x -> BabelBatchObs $ f x
 
   mkSpendingPurpose = BabelSpending
 
@@ -163,7 +168,39 @@ data BabelPlutusPurpose f era
   | BabelRewarding !(f Word32 (RewardAccount (EraCrypto era)))
   | BabelVoting !(f Word32 (Voter (EraCrypto era)))
   | BabelProposing !(f Word32 (ProposalProcedure era))
+  | BabelSpendOut !(f Word32 TxIx)
+  | BabelBatchObs !(f Word32 (ScriptHash (EraCrypto era)))
   deriving (Generic)
+
+class ConwayEraScript era => BabelEraScript era where
+  mkSpendOutPurpose :: f Word32 TxIx -> PlutusPurpose f era
+
+  toSpendOutPurpose :: PlutusPurpose f era -> Maybe (f Word32 TxIx)
+
+  mkBatchObsPurpose :: f Word32 (ScriptHash (EraCrypto era)) -> PlutusPurpose f era
+
+  toBatchObsPurpose :: PlutusPurpose f era -> Maybe (f Word32 (ScriptHash (EraCrypto era)))
+
+instance Crypto c => BabelEraScript (BabelEra c) where
+  mkSpendOutPurpose = BabelSpendOut
+  toSpendOutPurpose (BabelSpendOut c) = Just c
+  toSpendOutPurpose _ = Nothing
+
+  mkBatchObsPurpose = BabelBatchObs
+  toBatchObsPurpose (BabelBatchObs c) = Just c
+  toBatchObsPurpose _ = Nothing
+
+pattern SpendOutPurpose ::
+  BabelEraScript era => f Word32 TxIx -> PlutusPurpose f era
+pattern SpendOutPurpose c <- (toSpendOutPurpose -> Just c)
+  where
+    SpendOutPurpose c = mkSpendOutPurpose c
+
+pattern BatchObsPurpose ::
+  BabelEraScript era => f Word32 (ScriptHash (EraCrypto era)) -> PlutusPurpose f era
+pattern BatchObsPurpose c <- (toBatchObsPurpose -> Just c)
+  where
+    BatchObsPurpose c = mkBatchObsPurpose c
 
 deriving instance Eq (BabelPlutusPurpose AsIx era)
 deriving instance Ord (BabelPlutusPurpose AsIx era)
@@ -209,6 +246,8 @@ instance
     BabelRewarding x -> rnf x
     BabelVoting x -> rnf x
     BabelProposing x -> rnf x
+    BabelSpendOut x -> rnf x
+    BabelBatchObs x -> rnf x
 
 instance
   ( forall a b. (EncCBOR a, EncCBOR b) => EncCBOR (f a b)
@@ -227,6 +266,8 @@ instance
     BabelRewarding p -> encodeWord8 3 <> encCBOR p
     BabelVoting p -> encodeWord8 4 <> encCBOR p
     BabelProposing p -> encodeWord8 5 <> encCBOR p
+    BabelSpendOut p -> encodeWord8 6 <> encCBOR p
+    BabelBatchObs p -> encodeWord8 7 <> encCBOR p
   encodedGroupSizeExpr size_ _proxy =
     encodedSizeExpr size_ (Proxy :: Proxy Word8)
       + encodedSizeExpr size_ (Proxy :: Proxy Word16)
@@ -247,6 +288,8 @@ instance
       3 -> BabelRewarding <$> decCBOR
       4 -> BabelVoting <$> decCBOR
       5 -> BabelProposing <$> decCBOR
+      6 -> BabelSpendOut <$> decCBOR
+      7 -> BabelBatchObs <$> decCBOR
       n -> fail $ "Unexpected tag for BabelPlutusPurpose: " <> show n
 
 instance
@@ -263,5 +306,7 @@ instance
     BabelRewarding n -> kindObjectWithValue "BabelRewarding" n
     BabelVoting n -> kindObjectWithValue "BabelVoting" n
     BabelProposing n -> kindObjectWithValue "BabelProposing" n
+    BabelSpendOut n -> kindObjectWithValue "BabelSpendOut" n
+    BabelBatchObs n -> kindObjectWithValue "BabelBatchObs" n
     where
       kindObjectWithValue name n = kindObject name ["value" .= n]

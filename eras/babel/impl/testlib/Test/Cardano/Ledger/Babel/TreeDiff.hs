@@ -16,11 +16,11 @@ import Cardano.Ledger.Babel (BabelEra)
 import Cardano.Ledger.Babel.Core
 import Cardano.Ledger.Babel.Rules
 import Cardano.Ledger.Babel.Scripts
+import Cardano.Ledger.Babel.Tx
 import Cardano.Ledger.Babel.TxBody
 import Cardano.Ledger.Babel.TxCert
 import Cardano.Ledger.Babel.TxInfo (BabelContextError)
 import Cardano.Ledger.BaseTypes
-import Cardano.Ledger.Crypto (Crypto)
 import Cardano.Ledger.Shelley.Rules (ShelleyLedgersPredFailure)
 import Control.State.Transition.Extended (STS (..))
 import Test.Cardano.Data.TreeDiff ()
@@ -81,6 +81,17 @@ instance
   ToExpr (BabelLedgerPredFailure era)
 
 instance
+  ToExpr (PredicateFailure (EraRule "LEDGER" era)) =>
+  ToExpr (BabelLedgersPredFailure era)
+
+instance
+  ( ToExpr (PredicateFailure (EraRule "CERTS" era))
+  , ToExpr (PredicateFailure (EraRule "GOV" era))
+  , ToExpr (PredicateFailure (EraRule "UTXOW" era))
+  ) =>
+  ToExpr (BabelSwapsPredFailure era)
+
+instance
   ( ToExpr (Event (EraRule "CERTS" era))
   , ToExpr (Event (EraRule "UTXOW" era))
   , ToExpr (Event (EraRule "GOV" era))
@@ -107,16 +118,22 @@ instance
   ToExpr (BabelUtxowPredFailure era)
 
 instance
-  (Crypto c, ToExpr (PredicateFailure (EraRule "LEDGERS" (BabelEra c)))) =>
-  ToExpr
-    (BabelSwapsPredFailure (BabelEra c))
-
-instance
   ( ToExpr (Event (EraRule "LEDGER" era))
   , ToExpr (Event (EraRule "UTXOW" era))
+  , ToExpr (Event (EraRule "CERTS" era))
+  , ToExpr (Event (EraRule "GOV" era))
   ) =>
   ToExpr (BabelSwapsEvent era)
 
 instance
   ToExpr (PredicateFailure (EraRule "LEDGER" era)) =>
   ToExpr (ShelleyLedgersPredFailure era)
+
+-- Tx
+instance
+  ( ToExpr (TxAuxData era)
+  , ToExpr (TxBody era)
+  , ToExpr (TxWits era)
+  , ToExpr (Tx era)
+  ) =>
+  ToExpr (BabelTx era)

@@ -47,7 +47,7 @@ module Cardano.Ledger.Babel.TxBody (
     bbtbCurrentTreasuryValue,
     bbtbTreasuryDonation,
     bbtbSwaps,
-    bbtbRequiredTxs,
+    bbtbRequireBatchObservers,
     bbtbSpendOuts,
     bbtbCorInputs
   ),
@@ -68,7 +68,7 @@ import Cardano.Ledger.Babel.TxCert (
   BabelTxCertUpgradeError,
  )
 import Cardano.Ledger.Babel.TxOut ()
-import Cardano.Ledger.BaseTypes (Network, fromSMaybe)
+import Cardano.Ledger.BaseTypes (Network, TxIx (..), fromSMaybe)
 import Cardano.Ledger.Binary (
   Annotator,
   DecCBOR (..),
@@ -125,10 +125,13 @@ import Cardano.Ledger.Val (Val (..))
 import Control.Arrow (left)
 import Control.DeepSeq (NFData)
 import Control.Monad (unless)
+import Data.Foldable (Foldable (toList))
 import Data.Maybe.Strict (StrictMaybe (..))
 import qualified Data.OSet.Strict as OSet
-import Data.Sequence.Strict (StrictSeq)
+import Data.Sequence (mapWithIndex)
+import Data.Sequence.Strict (StrictSeq, fromStrict)
 import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
 import Lens.Micro (Lens', to, (^.))
@@ -139,7 +142,7 @@ instance Memoized BabelTxBody where
 
 class (MaryEraTxBody era, AlonzoEraTxOut era) => BabelEraTxBody era where
   swapsTxBodyL :: Lens' (TxBody era) (Set (TxId (EraCrypto era)))
-  requiredTxsTxBodyL :: Lens' (TxBody era) (Set (TxId (EraCrypto era)))
+  requireBatchObserversTxBodyL :: Lens' (TxBody era) (Set (ScriptHash (EraCrypto era)))
   spendOutsTxBodyL :: Lens' (TxBody era) (StrictSeq (Sized (TxOut era)))
   corInputsTxBodyL :: Lens' (TxBody era) (Set (TxIn (EraCrypto era)))
 
@@ -164,13 +167,20 @@ data BabelTxBodyRaw era = BabelTxBodyRaw
   , bbtbrCurrentTreasuryValue :: !(StrictMaybe Coin)
   , bbtbrTreasuryDonation :: !Coin
   , bbtbrSwaps :: !(Set (TxId (EraCrypto era)))
-  , bbtbrRequiredTxs :: !(Set (TxId (EraCrypto era)))
+  , bbtbrRequireBatchObservers :: !(Set (ScriptHash (EraCrypto era)))
   , bbtbrSpendOuts :: !(StrictSeq (Sized (TxOut era)))
   , bbtbrCorInputs :: !(Set (TxIn (EraCrypto era)))
   }
   deriving (Generic, Typeable)
 
 deriving instance (EraPParams era, Eq (TxOut era)) => Eq (BabelTxBodyRaw era)
+
+instance Crypto c => BabelEraTxBody (BabelEra c) where
+  {-# SPECIALIZE instance BabelEraTxBody (BabelEra StandardCrypto) #-}
+  swapsTxBodyL = lensMemoRawType bbtbrSwaps (\txb x -> txb {bbtbrSwaps = x})
+  requireBatchObserversTxBodyL = lensMemoRawType bbtbrRequireBatchObservers (\txb x -> txb {bbtbrRequireBatchObservers = x})
+  spendOutsTxBodyL = lensMemoRawType bbtbrSpendOuts (\txb x -> txb {bbtbrSpendOuts = x})
+  corInputsTxBodyL = lensMemoRawType bbtbrCorInputs (\txb x -> txb {bbtbrCorInputs = x})
 
 instance
   (EraPParams era, NoThunks (TxOut era)) =>
@@ -271,7 +281,7 @@ instance
           (\x tx -> tx {bbtbrTreasuryDonation = fromSMaybe zero x})
           (D (decodePositiveCoin $ emptyFailure "Treasury Donation" "non-zero"))
       bodyFields 23 = field (\x tx -> tx {bbtbrSwaps = x}) From
-      bodyFields 24 = field (\x tx -> tx {bbtbrRequiredTxs = x}) From
+      bodyFields 24 = field (\x tx -> tx {bbtbrRequireBatchObservers = x}) From
       bodyFields 25 = field (\x tx -> tx {bbtbrSpendOuts = x}) From
       bodyFields 26 = field (\x tx -> tx {bbtbrCorInputs = x}) From
       bodyFields n = field (\_ t -> t) (Invalid n)
@@ -442,7 +452,7 @@ instance Crypto c => EraTxBody (BabelEra c) where
         , bbtbVotingProcedures = VotingProcedures mempty
         , bbtbTreasuryDonation = Coin 0
         , bbtbSwaps = mempty
-        , bbtbRequiredTxs = mempty
+        , bbtbRequireBatchObservers = mempty
         , bbtbSpendOuts = mempty
         , bbtbCorInputs = mempty
         }
@@ -559,7 +569,7 @@ pattern BabelTxBody ::
   StrictMaybe Coin ->
   Coin ->
   Set (TxId (EraCrypto era)) ->
-  Set (TxId (EraCrypto era)) ->
+  Set (ScriptHash (EraCrypto era)) ->
   StrictSeq (Sized (TxOut era)) ->
   Set (TxIn (EraCrypto era)) ->
   BabelTxBody era
@@ -584,7 +594,7 @@ pattern BabelTxBody
   , bbtbCurrentTreasuryValue
   , bbtbTreasuryDonation
   , bbtbSwaps
-  , bbtbRequiredTxs
+  , bbtbRequireBatchObservers
   , bbtbSpendOuts
   , bbtbCorInputs
   } <-
@@ -610,7 +620,7 @@ pattern BabelTxBody
         , bbtbrCurrentTreasuryValue = bbtbCurrentTreasuryValue
         , bbtbrTreasuryDonation = bbtbTreasuryDonation
         , bbtbrSwaps = bbtbSwaps
-        , bbtbrRequiredTxs = bbtbRequiredTxs
+        , bbtbrRequireBatchObservers = bbtbRequireBatchObservers
         , bbtbrSpendOuts = bbtbSpendOuts
         , bbtbrCorInputs = bbtbCorInputs
         }
@@ -706,7 +716,7 @@ encodeTxBodyRaw BabelTxBodyRaw {..} =
         !> encodeKeyedStrictMaybe 21 bbtbrCurrentTreasuryValue
         !> Omit (== mempty) (Key 22 $ To bbtbrTreasuryDonation)
         !> Omit (== mempty) (Key 23 $ To bbtbrSwaps)
-        !> Omit (== mempty) (Key 24 $ To bbtbrRequiredTxs)
+        !> Omit (== mempty) (Key 24 $ To bbtbrRequireBatchObservers)
         !> Omit (== mempty) (Key 25 $ To bbtbrSpendOuts)
         !> Omit (== mempty) (Key 26 $ To bbtbrCorInputs)
 
@@ -724,7 +734,7 @@ instance Era era => EncCBOR (BabelTxBody era)
 
 babelRedeemerPointer ::
   forall era.
-  ConwayEraTxBody era =>
+  (ConwayEraTxBody era, BabelEraTxBody era) =>
   TxBody era ->
   BabelPlutusPurpose AsItem era ->
   StrictMaybe (BabelPlutusPurpose AsIx era)
@@ -741,9 +751,21 @@ babelRedeemerPointer txBody = \case
     BabelVoting <$> indexOf votingProcedure (txBody ^. votingProceduresTxBodyL)
   BabelProposing proposalProcedure ->
     BabelProposing <$> indexOf proposalProcedure (txBody ^. proposalProceduresTxBodyL)
+  -- TODO WG
+  BabelSpendOut idx ->
+    BabelSpendOut
+      <$> indexOf
+        idx
+        ( Set.fromList . toList $
+            mapWithIndex
+              (\i _ -> TxIx $ fromIntegral i)
+              (fmap sizedValue . fromStrict $ txBody ^. spendOutsTxBodyL)
+        )
+  BabelBatchObs scriptHash ->
+    BabelBatchObs <$> indexOf scriptHash (txBody ^. requireBatchObserversTxBodyL)
 
 babelRedeemerPointerInverse ::
-  ConwayEraTxBody era =>
+  (ConwayEraTxBody era, BabelEraTxBody era) =>
   TxBody era ->
   BabelPlutusPurpose AsIx era ->
   StrictMaybe (BabelPlutusPurpose AsIxItem era)
@@ -760,3 +782,14 @@ babelRedeemerPointerInverse txBody = \case
     BabelVoting <$> fromIndex idx (txBody ^. votingProceduresTxBodyL)
   BabelProposing idx ->
     BabelProposing <$> fromIndex idx (txBody ^. proposalProceduresTxBodyL)
+  BabelSpendOut idx ->
+    BabelSpendOut
+      <$> fromIndex
+        idx
+        ( Set.fromList . toList $
+            mapWithIndex
+              (\i _ -> TxIx $ fromIntegral i)
+              (fmap sizedValue . fromStrict $ txBody ^. spendOutsTxBodyL)
+        )
+  BabelBatchObs idx ->
+    BabelBatchObs <$> fromIndex idx (txBody ^. requireBatchObserversTxBodyL)

@@ -34,7 +34,7 @@ main =
       -- GovActionReorder.spec
       -- roundTripJsonEraSpec @Babel
       describe "Imp" $ do
-        BabelImp.spec @Babel
+        BabelImp.spec
 
 --   AlonzoImp.spec @Babel
 --   ShelleyImp.spec @Babel

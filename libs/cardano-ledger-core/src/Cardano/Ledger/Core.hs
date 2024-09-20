@@ -60,14 +60,8 @@ module Cardano.Ledger.Core (
   -- * Deprecations
   hashAuxiliaryData,
   validateAuxiliaryData,
-
-  -- * Babel fees
-  EraTxSwaps (..),
-  EraTxSwap (..),
 )
 where
-
--- EraRequiredTxsData (..),
 
 import qualified Cardano.Crypto.Hash as Hash
 import Cardano.Ledger.Address (
@@ -119,7 +113,6 @@ import qualified Data.ByteString as BS
 import Data.Kind (Type)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
-import qualified Data.Map.Strict as Strict
 import Data.Maybe (fromMaybe, isJust)
 import Data.Maybe.Strict (StrictMaybe)
 import Data.Sequence.Strict (StrictSeq)
@@ -130,29 +123,12 @@ import GHC.Stack (HasCallStack)
 import Lens.Micro
 import NoThunks.Class (NoThunks)
 
--- class
---   ( EraScript era
---   , Eq (RequiredTxs era)
---   , EqRaw (RequiredTxs era)
---   , Show (RequiredTxs era)
---   , Monoid (RequiredTxs era)
---   , NoThunks (RequiredTxs era)
---   , HashAnnotated (RequiredTxs era) EraIndependentRequiredTxs (EraCrypto era)
---   , ToCBOR (RequiredTxs era)
---   , EncCBOR (RequiredTxs era)
---   , DecCBOR (Annotator (RequiredTxs era))
---   ) =>
---   EraRequiredTxsData era
---   where
---   type RequiredTxs era = (r :: Type) | r -> era
-
 -- | A transaction.
 class
   ( EraTxBody era
   , EraTxWits era
   , EraTxAuxData era
-  , -- , EraRequiredTxsData era
-    EraPParams era
+  , EraPParams era
   , -- NFData (Tx era), TODO: Add NFData constraints to Crypto class
     NoThunks (Tx era)
   , DecCBOR (Annotator (Tx era))
@@ -652,54 +628,3 @@ txIdTx tx = txIdTxBody (tx ^. bodyTxL)
 
 txIdTxBody :: EraTxBody era => TxBody era -> TxId (EraCrypto era)
 txIdTxBody = TxId . hashAnnotated
-
-class
-  ( EraTxOut era
-  , EraTxCert era
-  , EraPParams era
-  , HashAnnotated (TxSwaps era) EraIndependentSwaps (EraCrypto era)
-  , DecCBOR (Annotator (TxSwaps era))
-  , EncCBOR (TxSwaps era)
-  , ToCBOR (TxSwaps era)
-  , NoThunks (TxSwaps era)
-  , NFData (TxSwaps era)
-  , Show (TxSwaps era)
-  , Eq (TxSwaps era)
-  , EqRaw (TxSwaps era)
-  , Monoid (TxSwaps era)
-  ) =>
-  EraTxSwaps era
-  where
-  type TxSwaps era = (r :: Type) | r -> era
-
-  mkBasicTxSwaps :: TxSwaps era
-  mkBasicTxSwaps = mempty
-
-  fromTxSwaps :: TxSwaps era -> Strict.Map (TxId (EraCrypto era)) (TxSwap era)
-  toTxSwaps :: Strict.Map (TxId (EraCrypto era)) (TxSwap era) -> TxSwaps era
-
-class
-  ( EraTxOut era
-  , EraTxCert era
-  , EraPParams era
-  , HashAnnotated (TxSwap era) EraIndependentSwap (EraCrypto era)
-  , DecCBOR (Annotator (TxSwap era))
-  , EncCBOR (TxSwap era)
-  , ToCBOR (TxSwap era)
-  , NoThunks (TxSwap era)
-  , NFData (TxSwap era)
-  , Show (TxSwap era)
-  , Eq (TxSwap era)
-  , EqRaw (TxSwap era)
-  ) =>
-  EraTxSwap era
-  where
-  type TxSwap era = (r :: Type) | r -> era
-
-  mkBasicTxSwap :: TxSwap era
-
-  txBodyTxSwapL :: Lens' (TxSwap era) (TxBody era)
-
-  witnessesTxSwapL :: Lens' (TxSwap era) (Set (WitVKey 'Witness (EraCrypto era)))
-
-  auxDataTxSwapL :: Lens' (TxSwap era) (StrictMaybe (TxAuxData era))

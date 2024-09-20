@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -8,9 +9,10 @@
 module Test.Cardano.Ledger.Babel.Translation.TranslatableGen where
 
 import Cardano.Ledger.Alonzo.Scripts (AlonzoEraScript, AsIx (..), PlutusPurpose)
-import Cardano.Ledger.Alonzo.TxWits (Redeemers (..))
+import Cardano.Ledger.Alonzo.TxWits (AlonzoTxWits (AlonzoTxWits), Redeemers (..))
 import Cardano.Ledger.Babel (Babel, BabelEra)
 import Cardano.Ledger.Babel.Scripts (BabelPlutusPurpose (..))
+import Cardano.Ledger.Babel.Tx
 import Cardano.Ledger.Babel.TxBody (BabelTxBody (..))
 import Cardano.Ledger.Binary (mkSized)
 import Cardano.Ledger.Core
@@ -20,12 +22,12 @@ import Cardano.Ledger.TxIn (TxIn (..))
 import qualified Data.Map.Strict as Map
 import Data.Sequence.Strict (fromList)
 import qualified Data.Set as Set
+import Test.Cardano.Ledger.Alonzo.Arbitrary (genScripts)
 import Test.Cardano.Ledger.Alonzo.Translation.TranslatableGen (
   TranslatableGen (..),
   TxInfoLanguage (..),
  )
 import qualified Test.Cardano.Ledger.Babbage.Translation.TranslatableGen as BabbageTranslatableGen (
-  genTx,
   genTxOut,
   utxoWithTx,
  )
@@ -34,12 +36,45 @@ import Test.Cardano.Ledger.Common
 
 instance TranslatableGen Babel where
   tgRedeemers = genRedeemers
-  tgTx l = BabbageTranslatableGen.genTx @Babel (genTxBody l)
+  tgTx l = genTx @Babel (genTxBody l)
   tgUtxo = BabbageTranslatableGen.utxoWithTx @Babel
   mkTxInfoLanguage PlutusV1 = TxInfoLanguage SPlutusV1
   mkTxInfoLanguage PlutusV2 = TxInfoLanguage SPlutusV2
   mkTxInfoLanguage PlutusV3 = TxInfoLanguage SPlutusV3
   mkTxInfoLanguage PlutusV4 = TxInfoLanguage SPlutusV4
+
+genTx ::
+  forall era.
+  ( TranslatableGen era
+  , Arbitrary (TxAuxData era)
+  , Arbitrary (Script era)
+  , AlonzoEraScript era
+  , AlonzoTxWits era ~ TxWits era
+  , Arbitrary (Tx era)
+  ) =>
+  Gen (TxBody era) ->
+  Gen (BabelTx era)
+genTx txbGen =
+  BabelTx
+    <$> txbGen
+    <*> genTxWits @era
+    <*> arbitrary
+    <*> arbitrary
+    <*> arbitrary
+
+genTxWits ::
+  ( TranslatableGen era
+  , Arbitrary (Script era)
+  , AlonzoEraScript era
+  ) =>
+  Gen (AlonzoTxWits era)
+genTxWits =
+  AlonzoTxWits
+    <$> arbitrary
+    <*> arbitrary
+    <*> genScripts
+    <*> arbitrary
+    <*> tgRedeemers
 
 genTxBody :: forall c. Crypto c => Language -> Gen (BabelTxBody (BabelEra c))
 genTxBody l = do

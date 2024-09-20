@@ -14,6 +14,7 @@ module Cardano.Ledger.Hashes (
   EraIndependentTxBody,
   EraIndependentSwap,
   EraIndependentSwaps,
+  EraIndependentRequiredTxs,
   EraIndependentBlockHeader,
   EraIndependentBlockBody,
   EraIndependentMetadata,
@@ -54,6 +55,8 @@ data EraIndependentTxBody
 data EraIndependentSwap
 
 data EraIndependentSwaps
+
+data EraIndependentRequiredTxs
 
 data EraIndependentBlockHeader
 
