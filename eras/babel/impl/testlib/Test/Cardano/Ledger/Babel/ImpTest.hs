@@ -284,9 +284,8 @@ import Type.Reflection (Typeable, typeOf)
 
 -- | Modify the PParams in the current state with the given function
 conwayModifyPParams ::
-  ConwayEraGov (BabelEra c) =>
-  (PParams (BabelEra c) -> PParams (BabelEra c)) ->
-  ImpTestM (BabelEra c) ()
+  (PParams (BabelEra StandardCrypto) -> PParams (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 conwayModifyPParams f = modifyNES $ \nes ->
   nes
     & nesEsL
@@ -318,9 +317,9 @@ withImpStateWithProtVer ver = do
          )
 
 fxupTx ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Tx (BabelEra c))
+  DSIGN StandardCrypto ~ Ed25519DSIGN =>
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
 fxupTx =
   addNativeScriptTxWits
     >=> addCollateralInput
@@ -337,10 +336,8 @@ fxupTx =
     >=> updateAddrTxWits
 
 fixupScriptWits ::
-  forall c.
-  (Crypto c, NFData (SigDSIGN (DSIGN c)), NFData (VerKeyDSIGN (DSIGN c))) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Tx (BabelEra c))
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
 fixupScriptWits tx = impAnn "fixupScriptWits" $ do
   contexts <- impGetPlutusContexts tx
   utxo <- getUTxO
@@ -351,11 +348,11 @@ fixupScriptWits tx = impAnn "fixupScriptWits" $ do
       forall l.
       PlutusLanguage l =>
       Plutus l ->
-      ImpTestM (BabelEra c) (Script (BabelEra c))
+      ImpTestM (BabelEra StandardCrypto) (Script (BabelEra StandardCrypto))
     plutusToScript p =
-      case mkPlutusScript @(BabelEra c) p of
+      case mkPlutusScript @(BabelEra StandardCrypto) p of
         Just x -> pure $ fromPlutusScript x
-        Nothing -> error "Plutus version not supported by (BabelEra c)"
+        Nothing -> error "Plutus version not supported by (BabelEra StandardCrypto)"
   scriptWits <- forM contextsToAdd $ \(_, sh, ScriptTestContext plutus _) ->
     (sh,) <$> plutusToScript plutus
   pure $
@@ -365,10 +362,8 @@ fixupScriptWits tx = impAnn "fixupScriptWits" $ do
       <>~ Map.fromList scriptWits
 
 fixupDatums ::
-  forall c.
-  (Crypto c, NFData (SigDSIGN (DSIGN c)), NFData (VerKeyDSIGN (DSIGN c))) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Tx (BabelEra c))
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
 fixupDatums tx = impAnn "fixupDatums" $ do
   contexts <- impGetPlutusContexts tx
   let purposes = (^. _1) <$> contexts
@@ -382,13 +377,14 @@ fixupDatums tx = impAnn "fixupDatums" $ do
         (Map.union prevDats $ fromElems PlutusData.hashData (catMaybes datums))
   where
     collectDatums ::
-      PlutusPurpose AsIxItem (BabelEra c) -> ImpTestM (BabelEra c) (Maybe (PlutusData.Data (BabelEra c)))
+      PlutusPurpose AsIxItem (BabelEra StandardCrypto) ->
+      ImpTestM (BabelEra StandardCrypto) (Maybe (PlutusData.Data (BabelEra StandardCrypto)))
     collectDatums purpose = do
       let txIn = unAsItem <$> toSpendingPurpose (hoistPlutusPurpose toAsItem purpose)
       txOut <- traverse impLookupUTxO txIn
       pure $ getData =<< txOut
 
-    getData :: TxOut (BabelEra c) -> Maybe (PlutusData.Data (BabelEra c))
+    getData :: TxOut (BabelEra StandardCrypto) -> Maybe (PlutusData.Data (BabelEra StandardCrypto))
     getData txOut = case txOut ^. datumTxOutF of
       DatumHash _dh ->
         spendDatum
@@ -402,7 +398,8 @@ fixupDatums tx = impAnn "fixupDatums" $ do
     spendDatum (ScriptTestContext _ (PlutusArgs _ (Just d))) = PlutusData.Data d
     spendDatum _ = error "Context does not have a spending datum"
 
-scriptTestContexts :: Crypto c => Map (ScriptHash (EraCrypto (BabelEra c))) ScriptTestContext
+scriptTestContexts ::
+  Map (ScriptHash (EraCrypto (BabelEra StandardCrypto))) ScriptTestContext
 scriptTestContexts =
   plutusTestScripts SPlutusV1
     <> plutusTestScripts SPlutusV2
@@ -410,26 +407,23 @@ scriptTestContexts =
     <> plutusTestScripts SPlutusV4
 
 impLookupPlutusScriptMaybe ::
-  Crypto c =>
-  ScriptHash (EraCrypto (BabelEra c)) ->
-  Maybe (PlutusScript (BabelEra c))
+  ScriptHash (EraCrypto (BabelEra StandardCrypto)) ->
+  Maybe (PlutusScript (BabelEra StandardCrypto))
 impLookupPlutusScriptMaybe sh =
   (\(ScriptTestContext plutus _) -> mkPlutusScript plutus) =<< impGetScriptContextMaybe sh
 
 fixupPPHash ::
-  forall c.
-  (Crypto c, NFData (SigDSIGN (DSIGN c)), NFData (VerKeyDSIGN (DSIGN c))) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Tx (BabelEra c))
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
 fixupPPHash tx = impAnn "fixupPPHash" $ do
   pp <- getsNES $ nesEsL . curPParamsEpochStateL
   utxo <- getUTxO
   let
-    scriptHashes :: Set (ScriptHash (EraCrypto (BabelEra c)))
+    scriptHashes :: Set (ScriptHash (EraCrypto (BabelEra StandardCrypto)))
     scriptHashes = getScriptsHashesNeeded . getScriptsNeeded utxo $ tx ^. bodyTxL
     plutusLanguage sh = do
       let mbyPlutus = impLookupPlutusScriptMaybe sh
-      pure $ getLanguageView pp . plutusScriptLanguage @(BabelEra c) <$> mbyPlutus
+      pure $ getLanguageView pp . plutusScriptLanguage @(BabelEra StandardCrypto) <$> mbyPlutus
   langs <- traverse plutusLanguage $ Set.toList scriptHashes
   let
     integrityHash =
@@ -444,10 +438,8 @@ fixupPPHash tx = impAnn "fixupPPHash" $ do
       .~ integrityHash
 
 fixupOutputDatums ::
-  forall c.
-  (Crypto c, NFData (SigDSIGN (DSIGN c)), NFData (VerKeyDSIGN (DSIGN c))) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Tx (BabelEra c))
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
 fixupOutputDatums tx = impAnn "fixupOutputDatums" $ do
   let
     isDatum (Datum _) = True
@@ -464,7 +456,7 @@ fixupOutputDatums tx = impAnn "fixupOutputDatums" $ do
                   pure $
                     txOut
                       & dataHashTxOutL
-                      .~ SJust (PlutusData.hashData @(BabelEra c) $ PlutusData.Data spendDatum)
+                      .~ SJust (PlutusData.hashData @(BabelEra StandardCrypto) $ PlutusData.Data spendDatum)
             _ -> pure txOut
         _ -> pure txOut
   newOutputs <- traverse addDatum $ tx ^. bodyTxL . outputsTxBodyL
@@ -475,10 +467,8 @@ fixupOutputDatums tx = impAnn "fixupOutputDatums" $ do
       .~ newOutputs
 
 fixupRedeemers ::
-  forall c.
-  (Crypto c, NFData (SigDSIGN (DSIGN c)), NFData (VerKeyDSIGN (DSIGN c))) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Tx (BabelEra c))
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
 fixupRedeemers tx = impAnn "fixupRedeemers" $ do
   contexts <- impGetPlutusContexts tx
   exUnits <- getsNES $ nesEsL . curPParamsEpochStateL . ppMaxTxExUnitsL
@@ -494,12 +484,14 @@ fixupRedeemers tx = impAnn "fixupRedeemers" $ do
       .~ Redeemers (Map.union oldRedeemers newRedeemers)
 
 impGetPlutusContexts ::
-  forall c.
-  Crypto c =>
-  Tx (BabelEra c) ->
+  Tx (BabelEra StandardCrypto) ->
   ImpTestM
-    (BabelEra c)
-    [(PlutusPurpose AsIxItem (BabelEra c), ScriptHash (EraCrypto (BabelEra c)), ScriptTestContext)]
+    (BabelEra StandardCrypto)
+    [ ( PlutusPurpose AsIxItem (BabelEra StandardCrypto)
+      , ScriptHash (EraCrypto (BabelEra StandardCrypto))
+      , ScriptTestContext
+      )
+    ]
 impGetPlutusContexts tx = do
   let txBody = tx ^. bodyTxL
   utxo <- getsNES $ nesEsL . esLStateL . lsUTxOStateL . utxosUtxoL
@@ -509,16 +501,13 @@ impGetPlutusContexts tx = do
   pure $ catMaybes mbyContexts
 
 impGetScriptContextMaybe ::
-  Crypto c =>
-  ScriptHash (EraCrypto (BabelEra c)) ->
+  ScriptHash (EraCrypto (BabelEra StandardCrypto)) ->
   Maybe ScriptTestContext
 impGetScriptContextMaybe sh = Map.lookup sh scriptTestContexts
 
 fixupRedeemerIndices ::
-  forall c.
-  (Crypto c, NFData (SigDSIGN (DSIGN c)), NFData (VerKeyDSIGN (DSIGN c))) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Tx (BabelEra c))
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
 fixupRedeemerIndices tx = impAnn "fixupRedeemerIndices" $ do
   (rootTxIn, _) <- lookupImpRootTxOut
   let
@@ -534,9 +523,9 @@ fixupRedeemerIndices tx = impAnn "fixupRedeemerIndices" $ do
       %~ (\(Redeemers m) -> Redeemers $ Map.mapKeys updateIndex m)
 
 addCollateralInput ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Tx (BabelEra c))
+  DSIGN StandardCrypto ~ Ed25519DSIGN =>
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
 addCollateralInput tx = impAnn "addCollateralInput" $ do
   ctx <- impGetPlutusContexts tx
   if null ctx
@@ -550,8 +539,8 @@ addCollateralInput tx = impAnn "addCollateralInput" $ do
           <>~ Set.singleton collateralInput
 
 makeCollateralInput ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
-  ImpTestM (BabelEra c) (TxIn (EraCrypto (BabelEra c)))
+  DSIGN StandardCrypto ~ Ed25519DSIGN =>
+  ImpTestM (BabelEra StandardCrypto) (TxIn (EraCrypto (BabelEra StandardCrypto)))
 makeCollateralInput = do
   -- TODO: make more accurate
   let collateral = Coin 10_000_000
@@ -559,23 +548,18 @@ makeCollateralInput = do
   withFixup fxupTx $ sendCoinTo addr collateral
 
 makeCollateralInputAccurate ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
+  DSIGN StandardCrypto ~ Ed25519DSIGN =>
   Integer ->
-  ImpTestM (BabelEra c) (TxIn (EraCrypto (BabelEra c)))
+  ImpTestM (BabelEra StandardCrypto) (TxIn (EraCrypto (BabelEra StandardCrypto)))
 makeCollateralInputAccurate c = do
   (_, addr) <- freshKeyAddr
   withFixup fxupTx $ sendCoinTo addr (Coin c)
 
 registerInitialCommittee ::
-  ( HasCallStack
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  ImpTestM (BabelEra c) (NonEmpty (Credential 'HotCommitteeRole (EraCrypto (BabelEra c))))
+  HasCallStack =>
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (NonEmpty (Credential 'HotCommitteeRole (EraCrypto (BabelEra StandardCrypto))))
 registerInitialCommittee = do
   committeeMembers <- Set.toList <$> getCommitteeMembers
   case committeeMembers of
@@ -585,16 +569,7 @@ registerInitialCommittee = do
 -- | Submit a transaction that registers a new DRep and return the keyhash
 -- belonging to that DRep
 registerDRep ::
-  forall c.
-  ( BabelEraTxCert (BabelEra c)
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  ImpTestM (BabelEra c) (KeyHash 'DRepRole (EraCrypto (BabelEra c)))
+  ImpTestM (BabelEra StandardCrypto) (KeyHash 'DRepRole (EraCrypto (BabelEra StandardCrypto)))
 registerDRep = do
   -- Register a DRep
   khDRep <- freshKeyHash
@@ -616,19 +591,10 @@ registerDRep = do
 -- that could count as delegated stake to the DRep, so that we can test that
 -- rewards are also calculated nonetheless.
 setupDRepWithoutStake ::
-  forall c.
-  ( BabelEraTxCert (BabelEra c)
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
   ImpTestM
-    (BabelEra c)
-    ( KeyHash 'DRepRole (EraCrypto (BabelEra c))
-    , KeyHash 'Staking (EraCrypto (BabelEra c))
+    (BabelEra StandardCrypto)
+    ( KeyHash 'DRepRole (EraCrypto (BabelEra StandardCrypto))
+    , KeyHash 'Staking (EraCrypto (BabelEra StandardCrypto))
     )
 setupDRepWithoutStake = do
   drepKH <- registerDRep
@@ -639,7 +605,7 @@ setupDRepWithoutStake = do
       & bodyTxL
       . certsTxBodyL
       .~ SSeq.fromList
-        [ mkRegDepositDelegTxCert @(BabelEra c)
+        [ mkRegDepositDelegTxCert @(BabelEra StandardCrypto)
             (KeyHashObj delegatorKH)
             (DelegVote (DRepCredential $ KeyHashObj drepKH))
             deposit
@@ -648,21 +614,12 @@ setupDRepWithoutStake = do
 
 -- | Registers a new DRep and delegates the specified amount of ADA to it.
 setupSingleDRep ::
-  forall c.
-  ( BabelEraTxCert (BabelEra c)
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
   Integer ->
   ImpTestM
-    (BabelEra c)
-    ( Credential 'DRepRole (EraCrypto (BabelEra c))
-    , Credential 'Staking (EraCrypto (BabelEra c))
-    , KeyPair 'Payment (EraCrypto (BabelEra c))
+    (BabelEra StandardCrypto)
+    ( Credential 'DRepRole (EraCrypto (BabelEra StandardCrypto))
+    , Credential 'Staking (EraCrypto (BabelEra StandardCrypto))
+    , KeyPair 'Payment (EraCrypto (BabelEra StandardCrypto))
     )
 setupSingleDRep stake = do
   drepKH <- registerDRep
@@ -680,14 +637,16 @@ setupSingleDRep stake = do
       & bodyTxL
       . certsTxBodyL
       .~ SSeq.fromList
-        [ mkRegDepositDelegTxCert @(BabelEra c)
+        [ mkRegDepositDelegTxCert @(BabelEra StandardCrypto)
             (KeyHashObj delegatorKH)
             (DelegVote (DRepCredential $ KeyHashObj drepKH))
             zero
         ]
   pure (KeyHashObj drepKH, KeyHashObj delegatorKH, spendingKP)
 
-getsPParams :: EraGov (BabelEra c) => Lens' (PParams (BabelEra c)) a -> ImpTestM (BabelEra c) a
+getsPParams ::
+  Lens' (PParams (BabelEra StandardCrypto)) a ->
+  ImpTestM (BabelEra StandardCrypto) a
 getsPParams f = getsNES $ nesEsL . curPParamsEpochStateL . f
 
 -- | Sets up a stake pool with coin delegated to it.
@@ -696,20 +655,12 @@ getsPParams f = getsNES $ nesEsL . curPParamsEpochStateL . f
 -- in Babel. The Shelley version of this function would have to separately
 -- register the staking credential and then delegate it.
 setupPoolWithStake ::
-  ( BabelEraTxCert (BabelEra c)
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
   Coin ->
   ImpTestM
-    (BabelEra c)
-    ( KeyHash 'StakePool (EraCrypto (BabelEra c))
-    , Credential 'Payment (EraCrypto (BabelEra c))
-    , Credential 'Staking (EraCrypto (BabelEra c))
+    (BabelEra StandardCrypto)
+    ( KeyHash 'StakePool (EraCrypto (BabelEra StandardCrypto))
+    , Credential 'Payment (EraCrypto (BabelEra StandardCrypto))
+    , Credential 'Staking (EraCrypto (BabelEra StandardCrypto))
     )
 setupPoolWithStake delegCoin = do
   khPool <- registerPool
@@ -733,18 +684,10 @@ setupPoolWithStake delegCoin = do
   pure (khPool, credDelegatorPayment, credDelegatorStaking)
 
 setupPoolWithoutStake ::
-  ( BabelEraTxCert (BabelEra c)
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
   ImpTestM
-    (BabelEra c)
-    ( KeyHash 'StakePool (EraCrypto (BabelEra c))
-    , Credential 'Staking (EraCrypto (BabelEra c))
+    (BabelEra StandardCrypto)
+    ( KeyHash 'StakePool (EraCrypto (BabelEra StandardCrypto))
+    , Credential 'Staking (EraCrypto (BabelEra StandardCrypto))
     )
 setupPoolWithoutStake = do
   khPool <- registerPool
@@ -765,80 +708,50 @@ setupPoolWithoutStake = do
 -- | Submits a transaction with a Vote for the given governance action as
 -- some voter
 submitVote ::
-  ( ConwayEraTxBody (BabelEra c)
-  , HasCallStack
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
+  HasCallStack =>
   Vote ->
-  Voter (EraCrypto (BabelEra c)) ->
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) (TxId (EraCrypto (BabelEra c)))
+  Voter (EraCrypto (BabelEra StandardCrypto)) ->
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) (TxId (EraCrypto (BabelEra StandardCrypto)))
 submitVote vote voter gaId = trySubmitVote vote voter gaId >>= expectRightDeep
 
 -- | Submits a transaction that votes "Yes" for the given governance action as
 -- some voter
 submitYesVote_ ::
-  ( ConwayEraTxBody (BabelEra c)
-  , HasCallStack
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  Voter (EraCrypto (BabelEra c)) ->
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  Voter (EraCrypto (BabelEra StandardCrypto)) ->
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 submitYesVote_ voter gaId = void $ submitVote VoteYes voter gaId
 
 submitVote_ ::
-  ( ConwayEraTxBody (BabelEra c)
-  , HasCallStack
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
+  HasCallStack =>
   Vote ->
-  Voter (EraCrypto (BabelEra c)) ->
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) ()
+  Voter (EraCrypto (BabelEra StandardCrypto)) ->
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 submitVote_ vote voter gaId = void $ submitVote vote voter gaId
 
 submitFailingVote ::
-  ( ConwayEraTxBody (BabelEra c)
-  , HasCallStack
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  Voter (EraCrypto (BabelEra c)) ->
-  GovActionId (EraCrypto (BabelEra c)) ->
-  NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra c))) ->
-  ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  Voter (EraCrypto (BabelEra StandardCrypto)) ->
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra StandardCrypto))) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 submitFailingVote voter gaId expectedFailure =
   trySubmitVote VoteYes voter gaId >>= (`shouldBeLeftExpr` expectedFailure)
 
 -- | Submits a transaction that votes "Yes" for the given governance action as
 -- some voter, and expects an `Either` result.
 trySubmitVote ::
-  ( ConwayEraTxBody (BabelEra c)
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
   Vote ->
-  Voter (EraCrypto (BabelEra c)) ->
-  GovActionId (EraCrypto (BabelEra c)) ->
+  Voter (EraCrypto (BabelEra StandardCrypto)) ->
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
   ImpTestM
-    (BabelEra c)
+    (BabelEra StandardCrypto)
     ( Either
-        (NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra c))))
-        (TxId (EraCrypto (BabelEra c)))
+        (NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra StandardCrypto))))
+        (TxId (EraCrypto (BabelEra StandardCrypto)))
     )
 trySubmitVote vote voter gaId =
   fmap (fmap txIdTx) $
@@ -860,40 +773,21 @@ trySubmitVote vote voter gaId =
           )
 
 submitProposal_ ::
-  ( ConwayEraTxBody (BabelEra c)
-  , HasCallStack
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  ProposalProcedure (BabelEra c) ->
-  ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  ProposalProcedure (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 submitProposal_ = void . submitProposal
 
 submitProposal ::
-  ( ConwayEraTxBody (BabelEra c)
-  , HasCallStack
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  ProposalProcedure (BabelEra c) ->
-  ImpTestM (BabelEra c) (GovActionId (EraCrypto (BabelEra c)))
+  HasCallStack =>
+  ProposalProcedure (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (GovActionId (EraCrypto (BabelEra StandardCrypto)))
 submitProposal proposal = trySubmitProposal proposal >>= expectRightExpr
 
 submitProposals ::
-  ( ConwayEraGov (BabelEra c)
-  , ConwayEraTxBody (BabelEra c)
-  , HasCallStack
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  NE.NonEmpty (ProposalProcedure (BabelEra c)) ->
-  ImpTestM (BabelEra c) (NE.NonEmpty (GovActionId (EraCrypto (BabelEra c))))
+  HasCallStack =>
+  NE.NonEmpty (ProposalProcedure (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) (NE.NonEmpty (GovActionId (EraCrypto (BabelEra StandardCrypto))))
 submitProposals proposals = do
   curEpochNo <- getsNES nesELL
   pp <- getsNES $ nesEsL . curPParamsEpochStateL
@@ -917,17 +811,12 @@ submitProposals proposals = do
 
 -- | Submits a transaction that proposes the given proposal
 trySubmitProposal ::
-  ( Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  ProposalProcedure (BabelEra c) ->
+  ProposalProcedure (BabelEra StandardCrypto) ->
   ImpTestM
-    (BabelEra c)
+    (BabelEra StandardCrypto)
     ( Either
-        (NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra c))))
-        (GovActionId (EraCrypto (BabelEra c)))
+        (NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra StandardCrypto))))
+        (GovActionId (EraCrypto (BabelEra StandardCrypto)))
     )
 trySubmitProposal proposal = do
   res <- trySubmitProposals (pure proposal)
@@ -941,15 +830,13 @@ trySubmitProposal proposal = do
     Left err -> Left err
 
 trySubmitProposals ::
-  ( Crypto c
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  ) =>
-  NE.NonEmpty (ProposalProcedure (BabelEra c)) ->
+  NE.NonEmpty (ProposalProcedure (BabelEra StandardCrypto)) ->
   ImpTestM
-    (BabelEra c)
-    (Either (NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra c)))) (Tx (BabelEra c)))
+    (BabelEra StandardCrypto)
+    ( Either
+        (NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra StandardCrypto))))
+        (Tx (BabelEra StandardCrypto))
+    )
 trySubmitProposals proposals = do
   trySubmitTx $
     mkBasicTx mkBasicTxBody
@@ -958,49 +845,33 @@ trySubmitProposals proposals = do
       .~ GHC.fromList (toList proposals)
 
 submitFailingProposal ::
-  ( ConwayEraTxBody (BabelEra c)
+  ( ConwayEraTxBody (BabelEra StandardCrypto)
   , HasCallStack
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
   ) =>
-  ProposalProcedure (BabelEra c) ->
-  NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra c))) ->
-  ImpTestM (BabelEra c) ()
+  ProposalProcedure (BabelEra StandardCrypto) ->
+  NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra StandardCrypto))) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 submitFailingProposal proposal expectedFailure =
   trySubmitProposal proposal >>= (`shouldBeLeftExpr` expectedFailure)
 
 -- | Submits a transaction that proposes the given governance action. For proposing
 -- multiple actions in the same transaciton use `trySubmitGovActions` instead.
 trySubmitGovAction ::
-  ( NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  GovAction (BabelEra c) ->
+  GovAction (BabelEra StandardCrypto) ->
   ImpTestM
-    (BabelEra c)
+    (BabelEra StandardCrypto)
     ( Either
-        (NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra c))))
-        (GovActionId (EraCrypto (BabelEra c)))
+        (NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra StandardCrypto))))
+        (GovActionId (EraCrypto (BabelEra StandardCrypto)))
     )
 trySubmitGovAction ga = do
   let mkGovActionId tx = GovActionId (txIdTx tx) (GovActionIx 0)
   fmap mkGovActionId <$> trySubmitGovActions (pure ga)
 
 submitAndExpireProposalToMakeReward ::
-  ( Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
   Int ->
-  Credential 'Staking (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) ()
+  Credential 'Staking (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 submitAndExpireProposalToMakeReward expectedReward stakingC = do
   rewardAccount <- getRewardAccountFor stakingC
   EpochInterval lifetime <- getsNES $ nesEsL . curPParamsEpochStateL . ppGovActionLifetimeL
@@ -1017,17 +888,13 @@ submitAndExpireProposalToMakeReward expectedReward stakingC = do
 
 -- | Submits a transaction that proposes the given governance action
 trySubmitGovActions ::
-  ( NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  NE.NonEmpty (GovAction (BabelEra c)) ->
+  NE.NonEmpty (GovAction (BabelEra StandardCrypto)) ->
   ImpTestM
-    (BabelEra c)
-    (Either (NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra c)))) (Tx (BabelEra c)))
+    (BabelEra StandardCrypto)
+    ( Either
+        (NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra StandardCrypto))))
+        (Tx (BabelEra StandardCrypto))
+    )
 trySubmitGovActions gas = do
   deposit <- getsNES $ nesEsL . curPParamsEpochStateL . ppGovActionDepositL
   rewardAccount <- registerRewardAccount
@@ -1042,83 +909,40 @@ trySubmitGovActions gas = do
   trySubmitProposals proposals
 
 submitGovAction ::
-  forall c.
-  ( ConwayEraTxBody (BabelEra c)
-  , HasCallStack
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  GovAction (BabelEra c) ->
-  ImpTestM (BabelEra c) (GovActionId (EraCrypto (BabelEra c)))
+  HasCallStack =>
+  GovAction (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (GovActionId (EraCrypto (BabelEra StandardCrypto)))
 submitGovAction ga = do
   gaId NE.:| _ <- submitGovActions (pure ga)
   pure gaId
 
 submitGovAction_ ::
-  forall c.
-  ( ConwayEraTxBody (BabelEra c)
-  , HasCallStack
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  GovAction (BabelEra c) ->
-  ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  GovAction (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 submitGovAction_ = void . submitGovAction
 
 submitGovActions ::
-  forall c.
-  ( ConwayEraTxBody (BabelEra c)
-  , HasCallStack
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  NE.NonEmpty (GovAction (BabelEra c)) ->
-  ImpTestM (BabelEra c) (NE.NonEmpty (GovActionId (EraCrypto (BabelEra c))))
+  HasCallStack =>
+  NE.NonEmpty (GovAction (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) (NE.NonEmpty (GovActionId (EraCrypto (BabelEra StandardCrypto))))
 submitGovActions gas = do
   tx <- trySubmitGovActions gas >>= expectRightExpr
   let txId = txIdTx tx
   pure $ NE.zipWith (\idx _ -> GovActionId txId (GovActionIx idx)) (0 NE.:| [1 ..]) gas
 
 submitTreasuryWithdrawals ::
-  ( ConwayEraTxBody (BabelEra c)
-  , ConwayEraGov (BabelEra c)
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  [(RewardAccount (EraCrypto (BabelEra c)), Coin)] ->
-  ImpTestM (BabelEra c) (GovActionId (EraCrypto (BabelEra c)))
+  [(RewardAccount (EraCrypto (BabelEra StandardCrypto)), Coin)] ->
+  ImpTestM (BabelEra StandardCrypto) (GovActionId (EraCrypto (BabelEra StandardCrypto)))
 submitTreasuryWithdrawals wdrls = do
   policy <- getGovPolicy
   submitGovAction $ TreasuryWithdrawals (Map.fromList wdrls) policy
 
 enactTreasuryWithdrawals ::
-  ( Crypto c
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  ) =>
-  [(RewardAccount (EraCrypto (BabelEra c)), Coin)] ->
-  Credential 'DRepRole (EraCrypto (BabelEra c)) ->
-  Credential 'HotCommitteeRole (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) (GovActionId (EraCrypto (BabelEra c)))
+  [(RewardAccount (EraCrypto (BabelEra StandardCrypto)), Coin)] ->
+  Credential 'DRepRole (EraCrypto (BabelEra StandardCrypto)) ->
+  Credential 'HotCommitteeRole (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) (GovActionId (EraCrypto (BabelEra StandardCrypto)))
 enactTreasuryWithdrawals withdrawals dRep cm = do
   gaId <- submitTreasuryWithdrawals withdrawals
   submitYesVote_ (DRepVoter dRep) gaId
@@ -1127,137 +951,125 @@ enactTreasuryWithdrawals withdrawals dRep cm = do
   pure gaId
 
 submitParameterChange ::
-  ( NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  StrictMaybe (GovActionId (EraCrypto (BabelEra c))) ->
-  PParamsUpdate (BabelEra c) ->
-  ImpTestM (BabelEra c) (GovActionId (EraCrypto (BabelEra c)))
+  StrictMaybe (GovActionId (EraCrypto (BabelEra StandardCrypto))) ->
+  PParamsUpdate (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (GovActionId (EraCrypto (BabelEra StandardCrypto)))
 submitParameterChange parent ppu = do
   policy <- getGovPolicy
   submitGovAction $ ParameterChange (GovPurposeId <$> parent) ppu policy
 
 getGovPolicy ::
-  ConwayEraGov (BabelEra c) =>
-  ImpTestM (BabelEra c) (StrictMaybe (ScriptHash (EraCrypto (BabelEra c))))
+  ImpTestM (BabelEra StandardCrypto) (StrictMaybe (ScriptHash (EraCrypto (BabelEra StandardCrypto))))
 getGovPolicy =
   getsNES $
     nesEpochStateL . epochStateGovStateL . constitutionGovStateL . constitutionScriptL
 
 submitFailingGovAction ::
-  forall c.
-  ( ConwayEraTxBody (BabelEra c)
-  , HasCallStack
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  GovAction (BabelEra c) ->
-  NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra c))) ->
-  ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  GovAction (BabelEra StandardCrypto) ->
+  NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra StandardCrypto))) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 submitFailingGovAction ga expectedFailure = trySubmitGovAction ga >>= (`shouldBeLeftExpr` expectedFailure)
 
-getEnactState :: ConwayEraGov (BabelEra c) => ImpTestM (BabelEra c) (EnactState (BabelEra c))
+getEnactState ::
+  ImpTestM (BabelEra StandardCrypto) (EnactState (BabelEra StandardCrypto))
 getEnactState = mkEnactState <$> getsNES (nesEsL . epochStateGovStateL)
 
-getProposals :: ConwayEraGov (BabelEra c) => ImpTestM (BabelEra c) (Proposals (BabelEra c))
+getProposals ::
+  ImpTestM (BabelEra StandardCrypto) (Proposals (BabelEra StandardCrypto))
 getProposals = getsNES $ nesEsL . esLStateL . lsUTxOStateL . utxosGovStateL . proposalsGovStateL
 
-logProposalsForest :: ConwayEraGov (BabelEra c) => ImpTestM (BabelEra c) ()
+logProposalsForest :: ImpTestM (BabelEra StandardCrypto) ()
 logProposalsForest = do
   proposals <- getProposals
   logEntry $ proposalsShowDebug proposals True
 
 getCommitteeMembers ::
-  Crypto c => ImpTestM (BabelEra c) (Set.Set (Credential 'ColdCommitteeRole (EraCrypto (BabelEra c))))
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (Set.Set (Credential 'ColdCommitteeRole (EraCrypto (BabelEra StandardCrypto))))
 getCommitteeMembers = do
   committee <-
     getsNES $ nesEsL . esLStateL . lsUTxOStateL . utxosGovStateL . committeeGovStateL
   pure $ Map.keysSet $ foldMap' committeeMembers committee
 
 getLastEnactedCommittee ::
-  ConwayEraGov (BabelEra c) =>
-  ImpTestM (BabelEra c) (StrictMaybe (GovPurposeId 'CommitteePurpose (BabelEra c)))
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (StrictMaybe (GovPurposeId 'CommitteePurpose (BabelEra StandardCrypto)))
 getLastEnactedCommittee = do
   ps <- getProposals
   pure $ ps ^. pRootsL . grCommitteeL . prRootL
 
 getConstitution ::
-  Crypto c => ImpTestM (BabelEra c) (Constitution (BabelEra c))
+  ImpTestM (BabelEra StandardCrypto) (Constitution (BabelEra StandardCrypto))
 getConstitution =
   getsNES $ nesEsL . esLStateL . lsUTxOStateL . utxosGovStateL . constitutionGovStateL
 
 getLastEnactedConstitution ::
-  ConwayEraGov (BabelEra c) =>
-  ImpTestM (BabelEra c) (StrictMaybe (GovPurposeId 'ConstitutionPurpose (BabelEra c)))
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (StrictMaybe (GovPurposeId 'ConstitutionPurpose (BabelEra StandardCrypto)))
 getLastEnactedConstitution = do
   ps <- getProposals
   pure $ ps ^. pRootsL . grConstitutionL . prRootL
 
 getLastEnactedParameterChange ::
-  ConwayEraGov (BabelEra c) =>
-  ImpTestM (BabelEra c) (StrictMaybe (GovPurposeId 'PParamUpdatePurpose (BabelEra c)))
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (StrictMaybe (GovPurposeId 'PParamUpdatePurpose (BabelEra StandardCrypto)))
 getLastEnactedParameterChange = do
   ps <- getProposals
   pure $ ps ^. pRootsL . grPParamUpdateL . prRootL
 
 getLastEnactedHardForkInitiation ::
-  ConwayEraGov (BabelEra c) =>
-  ImpTestM (BabelEra c) (StrictMaybe (GovPurposeId 'HardForkPurpose (BabelEra c)))
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (StrictMaybe (GovPurposeId 'HardForkPurpose (BabelEra StandardCrypto)))
 getLastEnactedHardForkInitiation = do
   ps <- getProposals
   pure $ ps ^. pRootsL . grHardForkL . prRootL
 
 getConstitutionProposals ::
-  ConwayEraGov (BabelEra c) =>
   ImpTestM
-    (BabelEra c)
+    (BabelEra StandardCrypto)
     ( Map.Map
-        (GovPurposeId 'ConstitutionPurpose (BabelEra c))
-        (PEdges (GovPurposeId 'ConstitutionPurpose (BabelEra c)))
+        (GovPurposeId 'ConstitutionPurpose (BabelEra StandardCrypto))
+        (PEdges (GovPurposeId 'ConstitutionPurpose (BabelEra StandardCrypto)))
     )
 getConstitutionProposals = do
   ps <- getProposals
   pure $ ps ^. pGraphL . grConstitutionL . pGraphNodesL
 
 getParameterChangeProposals ::
-  ConwayEraGov (BabelEra c) =>
   ImpTestM
-    (BabelEra c)
+    (BabelEra StandardCrypto)
     ( Map.Map
-        (GovPurposeId 'PParamUpdatePurpose (BabelEra c))
-        (PEdges (GovPurposeId 'PParamUpdatePurpose (BabelEra c)))
+        (GovPurposeId 'PParamUpdatePurpose (BabelEra StandardCrypto))
+        (PEdges (GovPurposeId 'PParamUpdatePurpose (BabelEra StandardCrypto)))
     )
 getParameterChangeProposals = do
   ps <- getProposals
   pure $ ps ^. pGraphL . grPParamUpdateL . pGraphNodesL
 
 logProposalsForestDiff ::
-  (Era (BabelEra c), ToExpr (PParamsHKD StrictMaybe (BabelEra c))) =>
-  Proposals (BabelEra c) ->
-  Proposals (BabelEra c) ->
-  ImpTestM (BabelEra c) ()
+  ToExpr (PParamsHKD StrictMaybe (BabelEra StandardCrypto)) =>
+  Proposals (BabelEra StandardCrypto) ->
+  Proposals (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 logProposalsForestDiff pf1 pf2 = logEntry $ unlines ["Proposals Forest Diff:", diffExpr pf1 pf2]
 
 -- | Looks up the governance action state corresponding to the governance action id
 lookupGovActionState ::
-  ConwayEraGov (BabelEra c) =>
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) (Maybe (GovActionState (BabelEra c)))
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) (Maybe (GovActionState (BabelEra StandardCrypto)))
 lookupGovActionState aId = proposalsLookupId aId <$> getProposals
 
 -- | Looks up the governance action state corresponding to the governance action id
 getGovActionState ::
-  (HasCallStack, ConwayEraGov (BabelEra c)) =>
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) (GovActionState (BabelEra c))
+  HasCallStack =>
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) (GovActionState (BabelEra StandardCrypto))
 getGovActionState govActionId =
   impAnn "Expecting an action state" $ do
     lookupGovActionState govActionId >>= \case
@@ -1266,15 +1078,15 @@ getGovActionState govActionId =
       Just govActionState -> pure govActionState
 
 expectPresentGovActionId ::
-  (HasCallStack, ConwayEraGov (BabelEra c)) =>
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 expectPresentGovActionId govActionId = void $ getGovActionState govActionId
 
 expectMissingGovActionId ::
-  (HasCallStack, ConwayEraGov (BabelEra c)) =>
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 expectMissingGovActionId govActionId =
   impAnn "Expecting for gov action state to be missing" $ do
     lookupGovActionState govActionId >>= \case
@@ -1283,7 +1095,8 @@ expectMissingGovActionId govActionId =
       Nothing -> pure ()
 
 -- | Builds a RatifyEnv from the current state
-getRatifyEnv :: ConwayEraGov (BabelEra c) => ImpTestM (BabelEra c) (RatifyEnv (BabelEra c))
+getRatifyEnv ::
+  ImpTestM (BabelEra StandardCrypto) (RatifyEnv (BabelEra StandardCrypto))
 getRatifyEnv = do
   eNo <- getsNES nesELL
   stakeDistr <- getsNES $ nesEsL . esLStateL . lsUTxOStateL . utxosStakeDistrL
@@ -1302,27 +1115,27 @@ getRatifyEnv = do
       }
 
 ccShouldNotBeExpired ::
-  (HasCallStack, ConwayEraGov (BabelEra c)) =>
-  Credential 'ColdCommitteeRole (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  Credential 'ColdCommitteeRole (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 ccShouldNotBeExpired coldC = do
   curEpochNo <- getsNES nesELL
   ccExpiryEpochNo <- getCCExpiry coldC
   curEpochNo `shouldSatisfy` (<= ccExpiryEpochNo)
 
 ccShouldBeExpired ::
-  (HasCallStack, ConwayEraGov (BabelEra c)) =>
-  Credential 'ColdCommitteeRole (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  Credential 'ColdCommitteeRole (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 ccShouldBeExpired coldC = do
   curEpochNo <- getsNES nesELL
   ccExpiryEpochNo <- getCCExpiry coldC
   curEpochNo `shouldSatisfy` (> ccExpiryEpochNo)
 
 getCCExpiry ::
-  (HasCallStack, ConwayEraGov (BabelEra c)) =>
-  Credential 'ColdCommitteeRole (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) EpochNo
+  HasCallStack =>
+  Credential 'ColdCommitteeRole (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) EpochNo
 getCCExpiry coldC = do
   committee <- getsNES $ nesEsL . epochStateGovStateL . committeeGovStateL
   case committee of
@@ -1334,7 +1147,9 @@ getCCExpiry coldC = do
 
 -- | Test the resignation status for a CC cold key to be resigned
 ccShouldBeResigned ::
-  HasCallStack => Credential 'ColdCommitteeRole (EraCrypto (BabelEra c)) -> ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  Credential 'ColdCommitteeRole (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 ccShouldBeResigned coldK = do
   committeeCreds <-
     getsNES $ nesEsL . esLStateL . lsCertStateL . certVStateL . vsCommitteeStateL . csCommitteeCredsL
@@ -1342,7 +1157,9 @@ ccShouldBeResigned coldK = do
 
 -- | Test the resignation status for a CC cold key to not be resigned
 ccShouldNotBeResigned ::
-  HasCallStack => Credential 'ColdCommitteeRole (EraCrypto (BabelEra c)) -> ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  Credential 'ColdCommitteeRole (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 ccShouldNotBeResigned coldK = do
   committeeCreds <-
     getsNES $ nesEsL . esLStateL . lsCertStateL . certVStateL . vsCommitteeStateL . csCommitteeCredsL
@@ -1354,15 +1171,14 @@ authHk _ = Nothing
 
 -- | Calculates the ratio of DReps that have voted for the governance action
 calculateDRepAcceptedRatio ::
-  forall c.
-  (HasCallStack, ConwayEraGov (BabelEra c)) =>
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) Rational
+  HasCallStack =>
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) Rational
 calculateDRepAcceptedRatio gaId = do
   ratEnv <- getRatifyEnv
   gas <- getGovActionState gaId
   pure $
-    dRepAcceptedRatio @(BabelEra c)
+    dRepAcceptedRatio @(BabelEra StandardCrypto)
       ratEnv
       (gas ^. gasDRepVotesL)
       (gasAction gas)
@@ -1370,17 +1186,16 @@ calculateDRepAcceptedRatio gaId = do
 -- | Calculates the ratio of Committee members that have voted for the governance
 -- action
 calculateCommitteeAcceptedRatio ::
-  forall c.
-  (HasCallStack, ConwayEraGov (BabelEra c)) =>
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) Rational
+  HasCallStack =>
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) Rational
 calculateCommitteeAcceptedRatio gaId = do
   eNo <- getsNES nesELL
   RatifyEnv {reCommitteeState} <- getRatifyEnv
   GovActionState {gasCommitteeVotes} <- getGovActionState gaId
   committee <- getsNES $ nesEsL . epochStateGovStateL . committeeGovStateL
   let
-    members = foldMap' (committeeMembers @(BabelEra c)) committee
+    members = foldMap' (committeeMembers @(BabelEra StandardCrypto)) committee
   pure $
     committeeAcceptedRatio
       members
@@ -1389,7 +1204,8 @@ calculateCommitteeAcceptedRatio gaId = do
       eNo
 
 calculatePoolAcceptedRatio ::
-  ConwayEraGov (BabelEra c) => GovActionId (EraCrypto (BabelEra c)) -> ImpTestM (BabelEra c) Rational
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) Rational
 calculatePoolAcceptedRatio gaId = do
   ratEnv <- getRatifyEnv
   gas <- getGovActionState gaId
@@ -1397,9 +1213,9 @@ calculatePoolAcceptedRatio gaId = do
 
 -- | Logs the ratios of accepted votes per category
 logAcceptedRatio ::
-  (HasCallStack, ConwayEraGov (BabelEra c)) =>
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 logAcceptedRatio aId = do
   dRepRatio <- calculateDRepAcceptedRatio aId
   committeeRatio <- calculateCommitteeAcceptedRatio aId
@@ -1414,8 +1230,9 @@ logAcceptedRatio aId = do
       ]
 
 getRatifyEnvAndState ::
-  ConwayEraGov (BabelEra c) =>
-  ImpTestM (BabelEra c) (RatifyEnv (BabelEra c), RatifyState (BabelEra c))
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (RatifyEnv (BabelEra StandardCrypto), RatifyState (BabelEra StandardCrypto))
 getRatifyEnvAndState = do
   ratifyEnv <- getRatifyEnv
   enactState <- getEnactState
@@ -1431,27 +1248,27 @@ getRatifyEnvAndState = do
 -- | Checks whether the governance action has enough DRep votes to be accepted in the next
 -- epoch. (Note that no other checks except DRep votes are used)
 isDRepAccepted ::
-  (HasCallStack, ConwayEraGov (BabelEra c), ConwayEraPParams (BabelEra c)) =>
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) Bool
+  HasCallStack =>
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) Bool
 isDRepAccepted gaId = do
   (ratifyEnv, ratifyState) <- getRatifyEnvAndState
   action <- getGovActionState gaId
   pure $ dRepAccepted ratifyEnv ratifyState action
 
 isSpoAccepted ::
-  (HasCallStack, ConwayEraGov (BabelEra c), ConwayEraPParams (BabelEra c)) =>
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) Bool
+  HasCallStack =>
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) Bool
 isSpoAccepted gaId = do
   (ratifyEnv, ratifyState) <- getRatifyEnvAndState
   action <- getGovActionState gaId
   pure $ spoAccepted ratifyEnv ratifyState action
 
 isCommitteeAccepted ::
-  (HasCallStack, ConwayEraGov (BabelEra c), ConwayEraPParams (BabelEra c)) =>
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) Bool
+  HasCallStack =>
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) Bool
 isCommitteeAccepted gaId = do
   (ratifyEnv, ratifyState) <- getRatifyEnvAndState
   action <- getGovActionState gaId
@@ -1459,9 +1276,8 @@ isCommitteeAccepted gaId = do
 
 -- | Logs the results of each check required to make the governance action pass
 logRatificationChecks ::
-  (ConwayEraGov (BabelEra c), ConwayEraPParams (BabelEra c)) =>
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) ()
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 logRatificationChecks gaId = do
   gas@GovActionState {gasCommitteeVotes, gasDRepVotes} <- getGovActionState gaId
   let govAction = gasAction gas
@@ -1509,16 +1325,10 @@ logRatificationChecks gaId = do
 -- | Submits a transaction that registers a hot key for the given cold key.
 -- Returns the hot key hash.
 registerCommitteeHotKey ::
-  ( BabelEraTxCert (BabelEra c)
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  Credential 'ColdCommitteeRole (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) (Credential 'HotCommitteeRole (EraCrypto (BabelEra c)))
+  Credential 'ColdCommitteeRole (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (Credential 'HotCommitteeRole (EraCrypto (BabelEra StandardCrypto)))
 registerCommitteeHotKey coldKey = do
   hotKey <- KeyHashObj <$> freshKeyHash
   submitTxAnn_ "Registering Committee Hot key" $
@@ -1530,17 +1340,9 @@ registerCommitteeHotKey coldKey = do
 
 -- | Submits a transaction that resigns the cold key
 resignCommitteeColdKey ::
-  ( BabelEraTxCert (BabelEra c)
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  Credential 'ColdCommitteeRole (EraCrypto (BabelEra c)) ->
-  StrictMaybe (Anchor (EraCrypto (BabelEra c))) ->
-  ImpTestM (BabelEra c) ()
+  Credential 'ColdCommitteeRole (EraCrypto (BabelEra StandardCrypto)) ->
+  StrictMaybe (Anchor (EraCrypto (BabelEra StandardCrypto))) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 resignCommitteeColdKey coldKey anchor = do
   submitTxAnn_ "Resigning Committee Cold key" $
     mkBasicTx mkBasicTxBody
@@ -1549,20 +1351,12 @@ resignCommitteeColdKey coldKey anchor = do
       .~ SSeq.singleton (ResignCommitteeColdTxCert coldKey anchor)
 
 electCommittee ::
-  forall c.
-  ( HasCallStack
-  , Crypto c
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  ) =>
-  StrictMaybe (GovPurposeId 'CommitteePurpose (BabelEra c)) ->
-  Credential 'DRepRole (EraCrypto (BabelEra c)) ->
-  Set.Set (Credential 'ColdCommitteeRole (EraCrypto (BabelEra c))) ->
-  Map.Map (Credential 'ColdCommitteeRole (EraCrypto (BabelEra c))) EpochNo ->
-  ImpTestM (BabelEra c) (GovPurposeId 'CommitteePurpose (BabelEra c))
+  HasCallStack =>
+  StrictMaybe (GovPurposeId 'CommitteePurpose (BabelEra StandardCrypto)) ->
+  Credential 'DRepRole (EraCrypto (BabelEra StandardCrypto)) ->
+  Set.Set (Credential 'ColdCommitteeRole (EraCrypto (BabelEra StandardCrypto))) ->
+  Map.Map (Credential 'ColdCommitteeRole (EraCrypto (BabelEra StandardCrypto))) EpochNo ->
+  ImpTestM (BabelEra StandardCrypto) (GovPurposeId 'CommitteePurpose (BabelEra StandardCrypto))
 electCommittee prevGovId drep toRemove toAdd = impAnn "Electing committee" $ do
   let
     committeeAction =
@@ -1576,21 +1370,12 @@ electCommittee prevGovId drep toRemove toAdd = impAnn "Electing committee" $ do
   pure (GovPurposeId gaidCommitteeProp)
 
 electBasicCommittee ::
-  forall c.
-  ( HasCallStack
-  , BabelEraTxCert (BabelEra c)
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
+  HasCallStack =>
   ImpTestM
-    (BabelEra c)
-    ( Credential 'DRepRole (EraCrypto (BabelEra c))
-    , Credential 'HotCommitteeRole (EraCrypto (BabelEra c))
-    , GovPurposeId 'CommitteePurpose (BabelEra c)
+    (BabelEra StandardCrypto)
+    ( Credential 'DRepRole (EraCrypto (BabelEra StandardCrypto))
+    , Credential 'HotCommitteeRole (EraCrypto (BabelEra StandardCrypto))
+    , GovPurposeId 'CommitteePurpose (BabelEra StandardCrypto)
     )
 electBasicCommittee = do
   logEntry "Setting up a DRep"
@@ -1617,7 +1402,8 @@ electBasicCommittee = do
   pure (drep, hotCommitteeC, GovPurposeId gaidCommitteeProp)
 
 logCurPParams ::
-  (EraGov (BabelEra c), ToExpr (PParamsHKD Identity (BabelEra c))) => ImpTestM (BabelEra c) ()
+  ToExpr (PParamsHKD Identity (BabelEra StandardCrypto)) =>
+  ImpTestM (BabelEra StandardCrypto) ()
 logCurPParams = do
   pp <- getsNES $ nesEsL . curPParamsEpochStateL
   logEntry $
@@ -1629,7 +1415,7 @@ logCurPParams = do
       , ""
       ]
 
-proposalsShowDebug :: Era (BabelEra c) => Proposals (BabelEra c) -> Bool -> String
+proposalsShowDebug :: Proposals (BabelEra StandardCrypto) -> Bool -> String
 proposalsShowDebug ps showRoots =
   unlines $
     [ ""
@@ -1666,16 +1452,8 @@ proposalsShowDebug ps showRoots =
       <> ["----- Proposals End -----"]
 
 submitConstitutionGovAction ::
-  ( ConwayEraTxBody (BabelEra c)
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  StrictMaybe (GovActionId (EraCrypto (BabelEra c))) ->
-  ImpTestM (BabelEra c) (GovActionId (EraCrypto (BabelEra c)))
+  StrictMaybe (GovActionId (EraCrypto (BabelEra StandardCrypto))) ->
+  ImpTestM (BabelEra StandardCrypto) (GovActionId (EraCrypto (BabelEra StandardCrypto)))
 submitConstitutionGovAction gid = do
   constitutionHash <- freshSafeHash
   let constitutionAction =
@@ -1691,8 +1469,9 @@ submitConstitutionGovAction gid = do
   submitGovAction constitutionAction
 
 getProposalsForest ::
-  ConwayEraGov (BabelEra c) =>
-  ImpTestM (BabelEra c) (Forest (StrictMaybe (GovActionId (EraCrypto (BabelEra c)))))
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (Forest (StrictMaybe (GovActionId (EraCrypto (BabelEra StandardCrypto)))))
 getProposalsForest = do
   ps <- getProposals
   pure
@@ -1703,14 +1482,18 @@ getProposalsForest = do
     ]
   where
     mkRoot ::
-      Lens' (GovRelation PRoot (BabelEra c)) (PRoot (GovPurposeId p (BabelEra c))) ->
-      Proposals (BabelEra c) ->
-      StrictMaybe (GovActionId (EraCrypto (BabelEra c)))
+      Lens'
+        (GovRelation PRoot (BabelEra StandardCrypto))
+        (PRoot (GovPurposeId p (BabelEra StandardCrypto))) ->
+      Proposals (BabelEra StandardCrypto) ->
+      StrictMaybe (GovActionId (EraCrypto (BabelEra StandardCrypto)))
     mkRoot rootL ps = fmap unGovPurposeId $ ps ^. pRootsL . rootL . prRootL
     mkForest ::
-      (forall f. Lens' (GovRelation f (BabelEra c)) (f (GovPurposeId p (BabelEra c)))) ->
-      Proposals (BabelEra c) ->
-      Forest (StrictMaybe (GovActionId (EraCrypto (BabelEra c))))
+      ( forall f.
+        Lens' (GovRelation f (BabelEra StandardCrypto)) (f (GovPurposeId p (BabelEra StandardCrypto)))
+      ) ->
+      Proposals (BabelEra StandardCrypto) ->
+      Forest (StrictMaybe (GovActionId (EraCrypto (BabelEra StandardCrypto))))
     mkForest forestL ps =
       let h = ps ^. pGraphL . forestL . pGraphNodesL
           s = toList $ proposalsIds ps
@@ -1719,12 +1502,12 @@ getProposalsForest = do
        in unfoldForest go (getOrderedChildren $ ps ^. pRootsL . forestL . prChildrenL)
 
 submitGovActionTree ::
-  ( StrictMaybe (GovActionId (EraCrypto (BabelEra c))) ->
-    ImpTestM (BabelEra c) (GovActionId (EraCrypto (BabelEra c)))
+  ( StrictMaybe (GovActionId (EraCrypto (BabelEra StandardCrypto))) ->
+    ImpTestM (BabelEra StandardCrypto) (GovActionId (EraCrypto (BabelEra StandardCrypto)))
   ) ->
-  StrictMaybe (GovActionId (EraCrypto (BabelEra c))) ->
+  StrictMaybe (GovActionId (EraCrypto (BabelEra StandardCrypto))) ->
   Tree () ->
-  ImpTestM (BabelEra c) (Tree (GovActionId (EraCrypto (BabelEra c))))
+  ImpTestM (BabelEra StandardCrypto) (Tree (GovActionId (EraCrypto (BabelEra StandardCrypto))))
 submitGovActionTree submitAction p tree =
   unfoldTreeM go $ fmap (const p) tree
   where
@@ -1733,12 +1516,12 @@ submitGovActionTree submitAction p tree =
       pure (n, fmap (\(Node _child subtree) -> Node (SJust n) subtree) children)
 
 submitGovActionForest ::
-  ( StrictMaybe (GovActionId (EraCrypto (BabelEra c))) ->
-    ImpTestM (BabelEra c) (GovActionId (EraCrypto (BabelEra c)))
+  ( StrictMaybe (GovActionId (EraCrypto (BabelEra StandardCrypto))) ->
+    ImpTestM (BabelEra StandardCrypto) (GovActionId (EraCrypto (BabelEra StandardCrypto)))
   ) ->
-  StrictMaybe (GovActionId (EraCrypto (BabelEra c))) ->
+  StrictMaybe (GovActionId (EraCrypto (BabelEra StandardCrypto))) ->
   Forest () ->
-  ImpTestM (BabelEra c) (Forest (GovActionId (EraCrypto (BabelEra c))))
+  ImpTestM (BabelEra StandardCrypto) (Forest (GovActionId (EraCrypto (BabelEra StandardCrypto))))
 submitGovActionForest submitAction p forest =
   unfoldForestM go $ fmap (fmap $ const p) forest
   where
@@ -1747,20 +1530,12 @@ submitGovActionForest submitAction p forest =
       pure (n, fmap (\(Node _child subtree) -> Node (SJust n) subtree) children)
 
 enactConstitution ::
-  forall c.
-  ( HasCallStack
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  StrictMaybe (GovPurposeId 'ConstitutionPurpose (BabelEra c)) ->
-  Constitution (BabelEra c) ->
-  Credential 'DRepRole (EraCrypto (BabelEra c)) ->
-  Credential 'HotCommitteeRole (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) (GovActionId (EraCrypto (BabelEra c)))
+  HasCallStack =>
+  StrictMaybe (GovPurposeId 'ConstitutionPurpose (BabelEra StandardCrypto)) ->
+  Constitution (BabelEra StandardCrypto) ->
+  Credential 'DRepRole (EraCrypto (BabelEra StandardCrypto)) ->
+  Credential 'HotCommitteeRole (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) (GovActionId (EraCrypto (BabelEra StandardCrypto)))
 enactConstitution prevGovId constitution dRep committeeMember = impAnn "Enacting constitution" $ do
   let action = NewConstitution prevGovId constitution
   govId <- submitGovAction action
@@ -1777,14 +1552,16 @@ enactConstitution prevGovId constitution dRep committeeMember = impAnn "Enacting
 -- | Asserts that the URL of the current constitution is equal to the given
 -- string
 constitutionShouldBe ::
-  (HasCallStack, ConwayEraGov (BabelEra c)) => String -> ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  String ->
+  ImpTestM (BabelEra StandardCrypto) ()
 constitutionShouldBe cUrl = do
   Constitution {constitutionAnchor = Anchor {anchorUrl}} <-
     getsNES $
       nesEsL . esLStateL . lsUTxOStateL . utxosGovStateL . constitutionGovStateL
   anchorUrl `shouldBe` fromJust (textToUrl 64 $ T.pack cUrl)
 
-expectNumDormantEpochs :: HasCallStack => EpochNo -> ImpTestM (BabelEra c) ()
+expectNumDormantEpochs :: HasCallStack => EpochNo -> ImpTestM (BabelEra StandardCrypto) ()
 expectNumDormantEpochs expected = do
   nd <-
     getsNES $
@@ -1792,16 +1569,10 @@ expectNumDormantEpochs expected = do
   nd `shouldBeExpr` expected
 
 submitConstitution ::
-  forall c.
-  ( NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  StrictMaybe (GovPurposeId 'ConstitutionPurpose (BabelEra c)) ->
-  ImpTestM (BabelEra c) (GovActionId (EraCrypto (BabelEra c)), Constitution (BabelEra c))
+  StrictMaybe (GovPurposeId 'ConstitutionPurpose (BabelEra StandardCrypto)) ->
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (GovActionId (EraCrypto (BabelEra StandardCrypto)), Constitution (BabelEra StandardCrypto))
 submitConstitution prevGovId = do
   constitution <- arbitrary
   let constitutionAction =
@@ -1812,10 +1583,10 @@ submitConstitution prevGovId = do
   pure (govActionId, constitution)
 
 expectExtraDRepExpiry ::
-  (HasCallStack, EraGov (BabelEra c), ConwayEraPParams (BabelEra c)) =>
-  Credential 'DRepRole (EraCrypto (BabelEra c)) ->
+  HasCallStack =>
+  Credential 'DRepRole (EraCrypto (BabelEra StandardCrypto)) ->
   EpochNo ->
-  ImpTestM (BabelEra c) ()
+  ImpTestM (BabelEra StandardCrypto) ()
 expectExtraDRepExpiry drep expected = do
   drepActivity <-
     getsNES $
@@ -1829,49 +1600,51 @@ expectExtraDRepExpiry drep expected = do
       `shouldBe` Just (addEpochInterval expected drepActivity)
 
 currentProposalsShouldContain ::
-  ( HasCallStack
-  , ConwayEraGov (BabelEra c)
-  ) =>
-  GovActionId (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  GovActionId (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 currentProposalsShouldContain gai =
   currentProposalIds >>= flip shouldContain [gai] . toList
 
-expectCurrentProposals :: (HasCallStack, ConwayEraGov (BabelEra c)) => ImpTestM (BabelEra c) ()
+expectCurrentProposals ::
+  HasCallStack => ImpTestM (BabelEra StandardCrypto) ()
 expectCurrentProposals = do
   props <- currentProposalIds
   assertBool "Expected proposals in current gov state" (not (SSeq.null props))
 
-expectNoCurrentProposals :: (HasCallStack, Crypto c) => ImpTestM (BabelEra c) ()
+expectNoCurrentProposals :: HasCallStack => ImpTestM (BabelEra StandardCrypto) ()
 expectNoCurrentProposals = do
   proposals <- getProposals
   case proposalsActions proposals of
     Empty -> pure ()
     xs -> assertFailure $ "Expected no active proposals, but got:\n" <> show (toExpr xs)
 
-expectPulserProposals :: (HasCallStack, ConwayEraGov (BabelEra c)) => ImpTestM (BabelEra c) ()
+expectPulserProposals ::
+  HasCallStack => ImpTestM (BabelEra StandardCrypto) ()
 expectPulserProposals = do
   props <- lastEpochProposals
   assertBool "Expected proposals in the pulser" (not (SSeq.null props))
 
-expectNoPulserProposals :: (HasCallStack, ConwayEraGov (BabelEra c)) => ImpTestM (BabelEra c) ()
+expectNoPulserProposals ::
+  HasCallStack => ImpTestM (BabelEra StandardCrypto) ()
 expectNoPulserProposals = do
   props <- lastEpochProposals
   assertBool "Expected no proposals in the pulser" (SSeq.null props)
 
 currentProposalIds ::
-  ConwayEraGov (BabelEra c) =>
-  ImpTestM (BabelEra c) (SSeq.StrictSeq (GovActionId (EraCrypto (BabelEra c))))
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (SSeq.StrictSeq (GovActionId (EraCrypto (BabelEra StandardCrypto))))
 currentProposalIds =
   proposalsIds
     <$> getsNES (nesEsL . esLStateL . lsUTxOStateL . utxosGovStateL . proposalsGovStateL)
 
 lastEpochProposals ::
-  forall c.
-  ConwayEraGov (BabelEra c) =>
-  ImpTestM (BabelEra c) (SSeq.StrictSeq (GovActionId (EraCrypto (BabelEra c))))
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (SSeq.StrictSeq (GovActionId (EraCrypto (BabelEra StandardCrypto))))
 lastEpochProposals =
-  fmap (gasId @(BabelEra c)) . psProposals
+  fmap (gasId @(BabelEra StandardCrypto)) . psProposals
     <$> getsNES
       ( nesEsL
           . esLStateL
@@ -1881,7 +1654,8 @@ lastEpochProposals =
           . pulsingStateSnapshotL
       )
 
-pulsingStateSnapshotL :: Lens' (DRepPulsingState (BabelEra c)) (PulsingSnapshot (BabelEra c))
+pulsingStateSnapshotL ::
+  Lens' (DRepPulsingState (BabelEra StandardCrypto)) (PulsingSnapshot (BabelEra StandardCrypto))
 pulsingStateSnapshotL = lens getter setter
   where
     getter (DRComplete x _) = x
@@ -1903,7 +1677,9 @@ majorFollow pv@(ProtVer x _) = case succVersion x of
 cantFollow :: ProtVer -> ProtVer
 cantFollow (ProtVer x y) = ProtVer x (y + 3)
 
-whenPostBootstrap :: EraGov (BabelEra c) => ImpTestM (BabelEra c) () -> ImpTestM (BabelEra c) ()
+whenPostBootstrap ::
+  ImpTestM (BabelEra StandardCrypto) () ->
+  ImpTestM (BabelEra StandardCrypto) ()
 whenPostBootstrap a = do
   pv <- getProtVer
   unless (HardForks.bootstrapPhase pv) a
@@ -1911,12 +1687,11 @@ whenPostBootstrap a = do
 -- | Figure out all the Byron Addresses that need witnesses as well as all of the
 -- KeyHashes for Shelley Key witnesses that are required.
 impWitsVKeyNeeded ::
-  EraUTxO (BabelEra c) =>
-  TxBody (BabelEra c) ->
+  TxBody (BabelEra StandardCrypto) ->
   ImpTestM
-    (BabelEra c)
-    ( Set.Set (BootstrapAddress (EraCrypto (BabelEra c))) -- Byron Based Addresses
-    , Set.Set (KeyHash 'Witness (EraCrypto (BabelEra c))) -- Shelley Based KeyHashes
+    (BabelEra StandardCrypto)
+    ( Set.Set (BootstrapAddress (EraCrypto (BabelEra StandardCrypto))) -- Byron Based Addresses
+    , Set.Set (KeyHash 'Witness (EraCrypto (BabelEra StandardCrypto))) -- Shelley Based KeyHashes
     )
 impWitsVKeyNeeded txBody = do
   ls <- getsNES (nesEsL . esLStateL)
@@ -1962,6 +1737,16 @@ newtype ImpTestM era a = ImpTestM {_unImpTestM :: ReaderT (ImpTestEnv era) IO a}
     , MonadReader (ImpTestEnv era)
     )
 
+modifyPParams ::
+  (PParams (BabelEra StandardCrypto) -> PParams (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
+modifyPParams f = modifyNES $ nesEsL . curPParamsEpochStateL %~ f
+
+logStakeDistr :: ImpTestM (BabelEra StandardCrypto) ()
+logStakeDistr = do
+  stakeDistr <- getsNES $ nesEsL . epochStateIncrStakeDistrL
+  logEntry $ "Stake distr: " <> showExpr stakeDistr
+
 instance MonadWriter [SomeSTSEvent era] (ImpTestM era) where
   writer (x, evs) = (impEventsL %= (<> evs)) $> x
   listen act = do
@@ -1985,23 +1770,22 @@ instance MonadState (ImpTestState era) (ImpTestM era) where
     liftIO . flip writeIORef x . iteState =<< ask
 
 instance
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
-  Example (ImpTestM (BabelEra c) ())
+  DSIGN StandardCrypto ~ Ed25519DSIGN =>
+  Example (ImpTestM (BabelEra StandardCrypto) ())
   where
-  type Arg (ImpTestM (BabelEra c) ()) = ImpTestState (BabelEra c)
+  type Arg (ImpTestM (BabelEra StandardCrypto) ()) = ImpTestState (BabelEra StandardCrypto)
 
   evaluateExample impTest params =
     evaluateExample (\s -> uncurry evalImpTestM (applyParamsQCGen params s) impTest) params
 
 instance
-  ( DSIGN c ~ Ed25519DSIGN
+  ( DSIGN StandardCrypto ~ Ed25519DSIGN
   , Arbitrary a
   , Show a
-  , Crypto c
   ) =>
-  Example (a -> ImpTestM (BabelEra c) ())
+  Example (a -> ImpTestM (BabelEra StandardCrypto) ())
   where
-  type Arg (a -> ImpTestM (BabelEra c) ()) = ImpTestState (BabelEra c)
+  type Arg (a -> ImpTestM (BabelEra StandardCrypto) ()) = ImpTestState (BabelEra StandardCrypto)
 
   evaluateExample impTest params =
     evaluateExample (\s -> property $ uncurry evalImpTestM (applyParamsQCGen params s) . impTest) params
@@ -2028,7 +1812,10 @@ instance HasSubState (ImpTestState era) where
   getSubState = StateGen . impGen
   setSubState s (StateGen g) = s {impGen = g}
 
-applyParamsQCGen :: Params -> ImpTestState (BabelEra c) -> (Maybe Int, ImpTestState (BabelEra c))
+applyParamsQCGen ::
+  Params ->
+  ImpTestState (BabelEra StandardCrypto) ->
+  (Maybe Int, ImpTestState (BabelEra StandardCrypto))
 applyParamsQCGen params impTestState =
   case replay (paramsQuickCheckArgs params) of
     Nothing -> (Nothing, impTestState)
@@ -2036,69 +1823,70 @@ applyParamsQCGen params impTestState =
 
 -- | Instead of reqplacing the curren QC generator in the state, we use the current and
 -- the supplied to make the new generator
-mixinCurrentGen :: ImpTestState (BabelEra c) -> QCGen -> ImpTestState (BabelEra c)
+mixinCurrentGen ::
+  ImpTestState (BabelEra StandardCrypto) -> QCGen -> ImpTestState (BabelEra StandardCrypto)
 mixinCurrentGen impTestState qcGen =
   impTestState {impGen = integerVariant (fst (Random.random (impGen impTestState))) qcGen}
 
 evalImpTestGenM ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
-  ImpTestState (BabelEra c) ->
-  ImpTestM (BabelEra c) b ->
+  DSIGN StandardCrypto ~ Ed25519DSIGN =>
+  ImpTestState (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) b ->
   Gen (IO b)
 evalImpTestGenM impState = fmap (fmap fst) . runImpTestGenM impState
 
 evalImpTestM ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
+  DSIGN StandardCrypto ~ Ed25519DSIGN =>
   Maybe Int ->
-  ImpTestState (BabelEra c) ->
-  ImpTestM (BabelEra c) b ->
+  ImpTestState (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) b ->
   IO b
 evalImpTestM qc impState = fmap fst . runImpTestM qc impState
 
 execImpTestGenM ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
-  ImpTestState (BabelEra c) ->
-  ImpTestM (BabelEra c) b ->
-  Gen (IO (ImpTestState (BabelEra c)))
+  DSIGN StandardCrypto ~ Ed25519DSIGN =>
+  ImpTestState (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) b ->
+  Gen (IO (ImpTestState (BabelEra StandardCrypto)))
 execImpTestGenM impState = fmap (fmap snd) . runImpTestGenM impState
 
 execImpTestM ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
+  DSIGN StandardCrypto ~ Ed25519DSIGN =>
   Maybe Int ->
-  ImpTestState (BabelEra c) ->
-  ImpTestM (BabelEra c) b ->
-  IO (ImpTestState (BabelEra c))
+  ImpTestState (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) b ->
+  IO (ImpTestState (BabelEra StandardCrypto))
 execImpTestM qcSize impState = fmap snd . runImpTestM qcSize impState
 
 runImpTestGenM_ ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
-  ImpTestState (BabelEra c) ->
-  ImpTestM (BabelEra c) b ->
+  DSIGN StandardCrypto ~ Ed25519DSIGN =>
+  ImpTestState (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) b ->
   Gen (IO ())
 runImpTestGenM_ impState = fmap void . runImpTestGenM impState
 
 runImpTestM_ ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
+  DSIGN StandardCrypto ~ Ed25519DSIGN =>
   Maybe Int ->
-  ImpTestState (BabelEra c) ->
-  ImpTestM (BabelEra c) b ->
+  ImpTestState (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) b ->
   IO ()
 runImpTestM_ qcSize impState = void . runImpTestM qcSize impState
 
 runImpTestGenM ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
-  ImpTestState (BabelEra c) ->
-  ImpTestM (BabelEra c) b ->
-  Gen (IO (b, ImpTestState (BabelEra c)))
+  DSIGN StandardCrypto ~ Ed25519DSIGN =>
+  ImpTestState (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) b ->
+  Gen (IO (b, ImpTestState (BabelEra StandardCrypto)))
 runImpTestGenM impState m =
   MkGen $ \qcGen qcSz -> runImpTestM (Just qcSz) (mixinCurrentGen impState qcGen) m
 
 runImpTestM ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
+  DSIGN StandardCrypto ~ Ed25519DSIGN =>
   Maybe Int ->
-  ImpTestState (BabelEra c) ->
-  ImpTestM (BabelEra c) b ->
-  IO (b, ImpTestState (BabelEra c))
+  ImpTestState (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) b ->
+  IO (b, ImpTestState (BabelEra StandardCrypto))
 runImpTestM mQCSize impState (ImpTestM m) = do
   let qcSize = fromMaybe 30 mQCSize
   ioRef <- newIORef impState
@@ -2138,7 +1926,8 @@ runImpTestM mQCSize impState (ImpTestM m) = do
 runShelleyBase :: Globals -> ShelleyBase a -> a
 runShelleyBase globals act = runIdentity $ runReaderT act globals
 
-getRewardAccountAmount :: RewardAccount (EraCrypto (BabelEra c)) -> ImpTestM (BabelEra c) Coin
+getRewardAccountAmount ::
+  RewardAccount (EraCrypto (BabelEra StandardCrypto)) -> ImpTestM (BabelEra StandardCrypto) Coin
 getRewardAccountAmount rewardAcount = do
   umap <- getsNES $ nesEsL . epochStateUMapL
   let cred = raCredential rewardAcount
@@ -2146,7 +1935,10 @@ getRewardAccountAmount rewardAcount = do
     Nothing -> assertFailure $ "Expected a reward account: " ++ show cred
     Just RDPair {rdReward} -> pure $ fromCompact rdReward
 
-lookupImpRootTxOut :: ImpTestM (BabelEra c) (TxIn (EraCrypto (BabelEra c)), TxOut (BabelEra c))
+lookupImpRootTxOut ::
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (TxIn (EraCrypto (BabelEra StandardCrypto)), TxOut (BabelEra StandardCrypto))
 lookupImpRootTxOut = do
   ImpTestState {impRootTxIn} <- get
   utxo <- getUTxO
@@ -2155,13 +1947,11 @@ lookupImpRootTxOut = do
     Just rootTxOut -> pure (impRootTxIn, rootTxOut)
 
 impAddNativeScript ::
-  forall c.
-  EraScript (BabelEra c) =>
-  NativeScript (BabelEra c) ->
-  ImpTestM (BabelEra c) (ScriptHash (EraCrypto (BabelEra c)))
+  NativeScript (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (ScriptHash (EraCrypto (BabelEra StandardCrypto)))
 impAddNativeScript nativeScript = do
   let script = fromNativeScript nativeScript
-      scriptHash = hashScript @(BabelEra c) script
+      scriptHash = hashScript @(BabelEra StandardCrypto) script
   impNativeScriptsL %= Map.insert scriptHash nativeScript
   pure scriptHash
 
@@ -2202,9 +1992,10 @@ impEventsL :: Lens' (ImpTestState era) [SomeSTSEvent era]
 impEventsL = lens impEvents (\x y -> x {impEvents = y})
 
 impNativeScriptsRequired ::
-  EraUTxO (BabelEra c) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Map (ScriptHash (EraCrypto (BabelEra c))) (NativeScript (BabelEra c)))
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (Map (ScriptHash (EraCrypto (BabelEra StandardCrypto))) (NativeScript (BabelEra StandardCrypto)))
 impNativeScriptsRequired tx = do
   utxo <- getUTxO
   ImpTestState {impNativeScripts} <- get
@@ -2214,9 +2005,8 @@ impNativeScriptsRequired tx = do
 
 -- | Modifies transaction by adding necessary scripts
 addNativeScriptTxWits ::
-  (Crypto c, NFData (SigDSIGN (DSIGN c)), NFData (VerKeyDSIGN (DSIGN c))) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Tx (BabelEra c))
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
 addNativeScriptTxWits tx = impAnn "addNativeScriptTxWits" $ do
   scriptsRequired <- impNativeScriptsRequired tx
   utxo <- getUTxO
@@ -2230,9 +2020,8 @@ addNativeScriptTxWits tx = impAnn "addNativeScriptTxWits" $ do
 
 -- | Adds @TxWits@ that will satisfy all of the required key witnesses
 updateAddrTxWits ::
-  (DSIGN c ~ Ed25519DSIGN, Crypto c) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Tx (BabelEra c))
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
 updateAddrTxWits tx = impAnn "updateAddrTxWits" $ do
   let txBody = tx ^. bodyTxL
       txBodyHash = hashAnnotated txBody
@@ -2273,9 +2062,8 @@ updateAddrTxWits tx = impAnn "updateAddrTxWits" $ do
 
 -- | This fixup step ensures that there are enough funds in the transaction.
 addRootTxIn ::
-  (Crypto c, NFData (SigDSIGN (DSIGN c)), NFData (VerKeyDSIGN (DSIGN c))) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Tx (BabelEra c))
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
 addRootTxIn tx = impAnn "addRootTxIn" $ do
   rootTxIn <- fst <$> lookupImpRootTxOut
   pure $
@@ -2285,13 +2073,12 @@ addRootTxIn tx = impAnn "addRootTxIn" $ do
       %~ Set.insert rootTxIn
 
 impNativeScriptKeyPairs ::
-  Crypto c =>
-  Tx (BabelEra c) ->
+  Tx (BabelEra StandardCrypto) ->
   ImpTestM
-    (BabelEra c)
+    (BabelEra StandardCrypto)
     ( Map
-        (KeyHash 'Witness (EraCrypto (BabelEra c)))
-        (KeyPair 'Witness (EraCrypto (BabelEra c)))
+        (KeyHash 'Witness (EraCrypto (BabelEra StandardCrypto)))
+        (KeyPair 'Witness (EraCrypto (BabelEra StandardCrypto)))
     )
 impNativeScriptKeyPairs tx = do
   scriptsRequired <- impNativeScriptsRequired tx
@@ -2301,13 +2088,15 @@ impNativeScriptKeyPairs tx = do
   pure . mconcat $ catMaybes keyPairs
 
 satisfyNativeScript ::
-  Crypto c =>
-  Set.Set (KeyHash 'Witness (EraCrypto (BabelEra c))) ->
-  NativeScript (BabelEra c) ->
+  Set.Set (KeyHash 'Witness (EraCrypto (BabelEra StandardCrypto))) ->
+  NativeScript (BabelEra StandardCrypto) ->
   ImpTestM
-    (BabelEra c)
+    (BabelEra StandardCrypto)
     ( Maybe
-        (Map.Map (KeyHash 'Witness (EraCrypto (BabelEra c))) (KeyPair 'Witness (EraCrypto (BabelEra c))))
+        ( Map.Map
+            (KeyHash 'Witness (EraCrypto (BabelEra StandardCrypto)))
+            (KeyPair 'Witness (EraCrypto (BabelEra StandardCrypto)))
+        )
     )
 satisfyNativeScript providedVKeyHashes script = do
   impState <- get
@@ -2341,18 +2130,18 @@ satisfyNativeScript providedVKeyHashes script = do
   pure $ satisfyScript script
 
 -- satisfyNativeScript ::
---   forall c.
---   ( c ~ EraCrypto (BabelEra c)
---   , Crypto c
---   , NFData (SigDSIGN (DSIGN c))
---   , NFData (VerKeyDSIGN (DSIGN c))
---   , Signable (DSIGN c) (Hash (HASH c) EraIndependentTxBody)
+--
+--   ( c ~ EraCrypto (BabelEra StandardCrypto)
+--
+--   , NFData (SigDSIGN (DSIGN StandardCrypto))
+--   , NFData (VerKeyDSIGN (DSIGN StandardCrypto))
+--   , Signable (DSIGN StandardCrypto) (Hash (HASH StandardCrypto) EraIndependentTxBody)
 --   ) =>
---   Set.Set (KeyHash 'Witness (EraCrypto (BabelEra c))) ->
---   NativeScript (BabelEra c) ->
+--   Set.Set (KeyHash 'Witness (EraCrypto (BabelEra StandardCrypto))) ->
+--   NativeScript (BabelEra StandardCrypto) ->
 --   ImpTestM
---     (BabelEra c)
---     ( Maybe (Map (KeyHash 'Witness (EraCrypto (BabelEra c))) (KeyPair 'Witness (EraCrypto (BabelEra c))))
+--     (BabelEra StandardCrypto)
+--     ( Maybe (Map (KeyHash 'Witness (EraCrypto (BabelEra StandardCrypto))) (KeyPair 'Witness (EraCrypto (BabelEra StandardCrypto))))
 --     )
 -- satisfyNativeScript providedVKeyHashes script = do
 --   keyPairs <- gets impKeyPairs
@@ -2366,7 +2155,7 @@ satisfyNativeScript providedVKeyHashes script = do
 --         Just kps -> do
 --           kps' <- satisfyMOf (m - 1) xs
 --           Just $ kps <> kps'
---     satisfyScript :: Timelock (BabelEra c) -> Maybe (Map (KeyHash 'Witness c) (KeyPair 'Witness c))
+--     satisfyScript :: Timelock (BabelEra StandardCrypto) -> Maybe (Map (KeyHash 'Witness c) (KeyPair 'Witness c))
 --     satisfyScript = \case
 --       RequireSignature keyHash
 --         | keyHash `Set.member` providedVKeyHashes -> Just mempty
@@ -2379,9 +2168,8 @@ satisfyNativeScript providedVKeyHashes script = do
 --   pure $ satisfyScript script
 
 fixupFees ::
-  (Crypto c, NFData (SigDSIGN (DSIGN c)), NFData (VerKeyDSIGN (DSIGN c))) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Tx (BabelEra c))
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
 fixupFees tx = impAnn "fixupFees" $ do
   pp <- getsNES $ nesEsL . curPParamsEpochStateL
   utxo <- getUTxO
@@ -2436,7 +2224,8 @@ fixupFees tx = impAnn "fixupFees" $ do
   pure txWithFee
 
 logFeeMismatch ::
-  (EraGov (BabelEra c), EraUTxO (BabelEra c)) => Tx (BabelEra c) -> ImpTestM (BabelEra c) ()
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 logFeeMismatch tx = do
   pp <- getsNES $ nesEsL . curPParamsEpochStateL
   utxo <- getsNES $ nesEsL . esLStateL . lsUTxOStateL . utxosUtxoL
@@ -2447,43 +2236,26 @@ logFeeMismatch tx = do
       "Estimated fee " <> show feeUsed <> " while required fee is " <> show feeMin
 
 submitTx_ ::
-  ( HasCallStack
-  , Crypto c
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  ) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 submitTx_ = void . submitTx
 
 submitTx ::
-  ( HasCallStack
-  , Crypto c
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  ) =>
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Tx (BabelEra c))
+  HasCallStack =>
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
 submitTx tx = trySubmitTx tx >>= expectRightDeepExpr
 
 trySubmitTx ::
-  forall c.
-  ( HasCallStack
-  , Crypto c
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  ) =>
-  Tx (BabelEra c) ->
+  HasCallStack =>
+  Tx (BabelEra StandardCrypto) ->
   ImpTestM
-    (BabelEra c)
-    (Either (NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra c)))) (Tx (BabelEra c)))
+    (BabelEra StandardCrypto)
+    ( Either
+        (NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra StandardCrypto))))
+        (Tx (BabelEra StandardCrypto))
+    )
 trySubmitTx tx = do
   txFixed <- asks iteFixup >>= ($ tx)
   logToExpr txFixed
@@ -2494,7 +2266,7 @@ trySubmitTx tx = do
   case res of
     Left predFailures -> do
       -- Verify that produced predicate failures are ready for the node-to-client protocol
-      liftIO $ forM_ predFailures $ roundTripEraExpectation @(BabelEra c)
+      liftIO $ forM_ predFailures $ roundTripEraExpectation @(BabelEra StandardCrypto)
       pure $ Left predFailures
     Right (st', events) -> do
       let txId = TxId . hashAnnotated $ txFixed ^. bodyTxL
@@ -2502,7 +2274,7 @@ trySubmitTx tx = do
           rootIndex
             | outsSize > 0 = outsSize - 1
             | otherwise = error ("Expected at least 1 output after submitting tx: " <> show txId)
-      tell $ fmap (SomeSTSEvent @(BabelEra c) @"LEDGER") events
+      tell $ fmap (SomeSTSEvent @(BabelEra StandardCrypto) @"LEDGER") events
       modify $ impNESL . nesEsL . esLStateL .~ st'
       UTxO utxo <- getUTxO
       -- This TxIn is in the utxo, and thus can be the new root, only if the transaction
@@ -2517,7 +2289,8 @@ trySubmitTx tx = do
       pure $ Right txFixed
 
 impLedgerEnv ::
-  EraGov (BabelEra c) => NewEpochState (BabelEra c) -> ImpTestM (BabelEra c) (LedgerEnv (BabelEra c))
+  NewEpochState (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (LedgerEnv (BabelEra StandardCrypto))
 impLedgerEnv nes = do
   slotNo <- gets impLastTick
   pure
@@ -2531,28 +2304,25 @@ impLedgerEnv nes = do
 -- | Submit a transaction that is expected to be rejected. The inputs and
 -- outputs are automatically balanced.
 submitFailingTx ::
-  ( HasCallStack
-  , Crypto c
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  ) =>
-  Tx (BabelEra c) ->
-  NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra c))) ->
-  ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  Tx (BabelEra StandardCrypto) ->
+  NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra StandardCrypto))) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 submitFailingTx tx expectedFailure = trySubmitTx tx >>= (`shouldBeLeftExpr` expectedFailure)
 
 tryRunImpRule ::
-  forall rule c.
-  (STS (EraRule rule (BabelEra c)), BaseM (EraRule rule (BabelEra c)) ~ ShelleyBase) =>
-  Environment (EraRule rule (BabelEra c)) ->
-  State (EraRule rule (BabelEra c)) ->
-  Signal (EraRule rule (BabelEra c)) ->
+  forall rule.
+  ( STS (EraRule rule (BabelEra StandardCrypto))
+  , BaseM (EraRule rule (BabelEra StandardCrypto)) ~ ShelleyBase
+  ) =>
+  Environment (EraRule rule (BabelEra StandardCrypto)) ->
+  State (EraRule rule (BabelEra StandardCrypto)) ->
+  Signal (EraRule rule (BabelEra StandardCrypto)) ->
   ImpTestM
-    (BabelEra c)
+    (BabelEra StandardCrypto)
     ( Either
-        (NonEmpty (PredicateFailure (EraRule rule (BabelEra c))))
-        (State (EraRule rule (BabelEra c)), [Event (EraRule rule (BabelEra c))])
+        (NonEmpty (PredicateFailure (EraRule rule (BabelEra StandardCrypto))))
+        (State (EraRule rule (BabelEra StandardCrypto)), [Event (EraRule rule (BabelEra StandardCrypto))])
     )
 tryRunImpRule stsEnv stsState stsSignal = do
   let trc = TRC (stsEnv, stsState, stsSignal)
@@ -2564,24 +2334,25 @@ tryRunImpRule stsEnv stsState stsSignal = do
         , asoEvents = EPReturn
         , asoAssertions = AssertionsAll
         }
-  pure $ runShelleyBase globals (applySTSOptsEither @(EraRule rule (BabelEra c)) stsOpts trc)
+  pure $
+    runShelleyBase globals (applySTSOptsEither @(EraRule rule (BabelEra StandardCrypto)) stsOpts trc)
 
 runImpRule ::
-  forall rule c.
+  forall rule.
   ( HasCallStack
   , KnownSymbol rule
-  , STS (EraRule rule (BabelEra c))
-  , BaseM (EraRule rule (BabelEra c)) ~ ShelleyBase
-  , NFData (State (EraRule rule (BabelEra c)))
-  , NFData (Event (EraRule rule (BabelEra c)))
-  , ToExpr (Event (EraRule rule (BabelEra c)))
-  , Eq (Event (EraRule rule (BabelEra c)))
-  , Typeable (Event (EraRule rule (BabelEra c)))
+  , STS (EraRule rule (BabelEra StandardCrypto))
+  , BaseM (EraRule rule (BabelEra StandardCrypto)) ~ ShelleyBase
+  , NFData (State (EraRule rule (BabelEra StandardCrypto)))
+  , NFData (Event (EraRule rule (BabelEra StandardCrypto)))
+  , ToExpr (Event (EraRule rule (BabelEra StandardCrypto)))
+  , Eq (Event (EraRule rule (BabelEra StandardCrypto)))
+  , Typeable (Event (EraRule rule (BabelEra StandardCrypto)))
   ) =>
-  Environment (EraRule rule (BabelEra c)) ->
-  State (EraRule rule (BabelEra c)) ->
-  Signal (EraRule rule (BabelEra c)) ->
-  ImpTestM (BabelEra c) (State (EraRule rule (BabelEra c)))
+  Environment (EraRule rule (BabelEra StandardCrypto)) ->
+  State (EraRule rule (BabelEra StandardCrypto)) ->
+  Signal (EraRule rule (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) (State (EraRule rule (BabelEra StandardCrypto)))
 runImpRule stsEnv stsState stsSignal = do
   let ruleName = symbolVal (Proxy @rule)
   (res, ev) <-
@@ -2591,16 +2362,13 @@ runImpRule stsEnv stsState stsSignal = do
           unlines $
             ("Failed to run " <> ruleName <> ":") : map show (toList fs)
       Right res -> evaluateDeep res
-  tell $ fmap (SomeSTSEvent @(BabelEra c) @rule) ev
+  tell $ fmap (SomeSTSEvent @(BabelEra StandardCrypto) @rule) ev
   pure res
 
 -- | Runs the TICK rule once
 passTick ::
-  forall c.
-  ( HasCallStack
-  , Crypto c
-  ) =>
-  ImpTestM (BabelEra c) ()
+  HasCallStack =>
+  ImpTestM (BabelEra StandardCrypto) ()
 passTick = do
   impLastTick <- gets impLastTick
   curNES <- getsNES id
@@ -2610,9 +2378,7 @@ passTick = do
 
 -- | Runs the TICK rule until the next epoch is reached
 passEpoch ::
-  forall c.
-  Crypto c =>
-  ImpTestM (BabelEra c) ()
+  ImpTestM (BabelEra StandardCrypto) ()
 passEpoch = do
   startEpoch <- getsNES nesELL
   logEntry $ "Entering " <> show (succ startEpoch)
@@ -2627,10 +2393,9 @@ passEpoch = do
   gets impNES >>= epochBoundaryCheck preNES
 
 epochBoundaryCheck ::
-  (EraTxOut (BabelEra c), EraGov (BabelEra c)) =>
-  NewEpochState (BabelEra c) ->
-  NewEpochState (BabelEra c) ->
-  ImpTestM (BabelEra c) ()
+  NewEpochState (BabelEra StandardCrypto) ->
+  NewEpochState (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 epochBoundaryCheck preNES postNES = do
   impAnn "Checking ADA preservation at the epoch boundary" $ do
     let preSum = tot preNES
@@ -2647,10 +2412,8 @@ epochBoundaryCheck preNES postNES = do
 
 -- | Runs the TICK rule until the `n` epochs are passed
 passNEpochs ::
-  forall c.
-  Crypto c =>
   Natural ->
-  ImpTestM (BabelEra c) ()
+  ImpTestM (BabelEra StandardCrypto) ()
 passNEpochs n = when (n > 0) $ passEpoch >> passNEpochs (n - 1)
 
 -- | Stores extra information about the failure of the unit test
@@ -2671,7 +2434,8 @@ instance Exception ImpException
 
 -- | Annotation for when failure happens. All the logging done within annotation will be
 -- discarded if there no failures within the annotation.
-impAnn :: NFData a => String -> ImpTestM (BabelEra c) a -> ImpTestM (BabelEra c) a
+impAnn ::
+  NFData a => String -> ImpTestM (BabelEra StandardCrypto) a -> ImpTestM (BabelEra StandardCrypto) a
 impAnn msg m = do
   logs <- use impLogL
   res <- catchAnyDeep m $ \exc ->
@@ -2683,7 +2447,7 @@ impAnn msg m = do
   pure res
 
 -- | Adds a string to the log, which is only shown if the test fails
-logEntry :: HasCallStack => String -> ImpTestM (BabelEra c) ()
+logEntry :: HasCallStack => String -> ImpTestM (BabelEra StandardCrypto) ()
 logEntry e = impLogL %= (<> pretty loc <> "\t" <> pretty e <> line)
   where
     formatSrcLoc srcLoc =
@@ -2693,7 +2457,7 @@ logEntry e = impLogL %= (<> pretty loc <> "\t" <> pretty e <> line)
         (_, srcLoc) : _ -> formatSrcLoc srcLoc
         _ -> ""
 
-logToExpr :: (HasCallStack, ToExpr a) => a -> ImpTestM (BabelEra c) ()
+logToExpr :: (HasCallStack, ToExpr a) => a -> ImpTestM (BabelEra StandardCrypto) ()
 logToExpr e = logEntry (showExpr e)
 
 withImpState ::
@@ -2701,7 +2465,7 @@ withImpState ::
   Spec
 withImpState = withImpStateModified id
 
-initLedgerState :: Crypto c => LedgerState (BabelEra c)
+initLedgerState :: LedgerState (BabelEra StandardCrypto)
 initLedgerState =
   LedgerState
     { lsUTxOState =
@@ -2723,7 +2487,7 @@ genesisCoins genesisTxId outs =
   UTxO $
     Map.fromList [(TxIn genesisTxId idx, out) | (idx, out) <- zip [minBound ..] outs]
 
--- initUTxO :: Crypto c => UTxOState (BabelEra c)
+-- initUTxO :: UTxOState (BabelEra StandardCrypto)
 -- initUTxO =
 --   UTxOState
 --     mempty
@@ -2802,10 +2566,12 @@ largeValue =
   MultiAsset $
     Map.singleton purplePolicyId (Map.fromList [(amethyst, 80)])
 
-testKeyHash :: Crypto c => KeyHash kd c
+testKeyHash :: KeyHash kd StandardCrypto
 testKeyHash = mkKeyHash (-1)
 
-initBabelImpNES :: forall c. Crypto c => LedgerState (BabelEra c) -> NewEpochState (BabelEra c)
+initBabelImpNES ::
+  LedgerState (BabelEra StandardCrypto) ->
+  NewEpochState (BabelEra StandardCrypto)
 initBabelImpNES ls =
   NewEpochState
     { stashedAVVMAddresses = def
@@ -2825,7 +2591,7 @@ initBabelImpNES ls =
               ( testKeyHash
               , IndividualPoolStake
                   1
-                  (mkHashVerKeyVRF @c 0)
+                  (mkHashVerKeyVRF 0)
               )
             ]
     , nesEs = epochState
@@ -2857,10 +2623,8 @@ initBabelImpNES ls =
         .~ pp
 
 mkHashVerKeyVRF ::
-  forall c.
-  (VRFAlgorithm (VRF c), HashAlgorithm (HASH c), DSIGNAlgorithm (DSIGN c)) =>
   Integer ->
-  Hash (HASH (EraCrypto (BabelEra c))) (VerKeyVRF (EraCrypto (BabelEra c)))
+  Hash (HASH (EraCrypto (BabelEra StandardCrypto))) (VerKeyVRF (EraCrypto (BabelEra StandardCrypto)))
 mkHashVerKeyVRF =
   VRF.hashVerKeyVRF
     . VRF.deriveVerKeyVRF
@@ -2868,16 +2632,14 @@ mkHashVerKeyVRF =
     . mkSeedFromBytes
     . integralToByteStringN seedSize
   where
-    seedSize = fromIntegral . seedSizeDSIGN $ Proxy @(DSIGN (EraCrypto (BabelEra c)))
+    seedSize = fromIntegral . seedSizeDSIGN $ Proxy @(DSIGN (EraCrypto (BabelEra StandardCrypto)))
 
-mkTxId :: Crypto c => Int -> TxId c
+mkTxId :: Int -> TxId StandardCrypto
 mkTxId idx = TxId (mkDummySafeHash Proxy idx)
 
 initImpNES ::
-  forall c.
-  Crypto c =>
-  NewEpochState (BabelEra c) ->
-  NewEpochState (BabelEra c)
+  NewEpochState (BabelEra StandardCrypto) ->
+  NewEpochState (BabelEra StandardCrypto)
 initImpNES = nesEsL . curPParamsEpochStateL %~ initPParams
   where
     initPParams pp =
@@ -2888,14 +2650,13 @@ initImpNES = nesEsL . curPParamsEpochStateL %~ initPParams
         .~ ExUnits 10_000_000 10_000_000
         & ppCostModelsL
         .~ testingCostModels
-          [PlutusV1 .. eraMaxLanguage @(BabelEra c)]
+          [PlutusV1 .. eraMaxLanguage @(BabelEra StandardCrypto)]
 
 newImpTestState ::
-  forall m c.
-  ( GovState (BabelEra c) ~ ConwayGovState (BabelEra c)
-  , MonadState (ImpTestState (BabelEra c)) m
+  forall m.
+  ( GovState (BabelEra StandardCrypto) ~ ConwayGovState (BabelEra StandardCrypto)
+  , MonadState (ImpTestState (BabelEra StandardCrypto)) m
   , MonadGen m
-  , Crypto c
   ) =>
   m ()
 newImpTestState = do
@@ -2906,10 +2667,10 @@ newImpTestState = do
   impNESL %= initBabelNES committee constitution
   where
     initBabelNES ::
-      Committee (BabelEra c) ->
-      Constitution (BabelEra c) ->
-      NewEpochState (BabelEra c) ->
-      NewEpochState (BabelEra c)
+      Committee (BabelEra StandardCrypto) ->
+      Constitution (BabelEra StandardCrypto) ->
+      NewEpochState (BabelEra StandardCrypto) ->
+      NewEpochState (BabelEra StandardCrypto)
     initBabelNES committee constitution nes =
       let newNes =
             initImpNES nes
@@ -2959,19 +2720,22 @@ newImpTestState = do
        in newNes & nesEsL .~ setCompleteDRepPulsingState def ratifyState epochState
 
 -- | Creates a fresh @SafeHash@
-freshSafeHash :: Era (BabelEra c) => ImpTestM (BabelEra c) (SafeHash (EraCrypto (BabelEra c)) a)
+freshSafeHash ::
+  ImpTestM (BabelEra StandardCrypto) (SafeHash (EraCrypto (BabelEra StandardCrypto)) a)
 freshSafeHash = arbitrary
 
 freshKeyHashVRF ::
-  Era (BabelEra c) =>
-  ImpTestM (BabelEra c) (Hash (HASH (EraCrypto (BabelEra c))) (VerKeyVRF (EraCrypto (BabelEra c))))
+  ImpTestM
+    (BabelEra StandardCrypto)
+    ( Hash (HASH (EraCrypto (BabelEra StandardCrypto))) (VerKeyVRF (EraCrypto (BabelEra StandardCrypto)))
+    )
 freshKeyHashVRF = arbitrary
 
 -- | Adds a key pair to the keyhash lookup map
 addKeyPair ::
-  (Era (BabelEra c), MonadState (ImpTestState (BabelEra c)) m) =>
-  KeyPair r (EraCrypto (BabelEra c)) ->
-  m (KeyHash r (EraCrypto (BabelEra c)))
+  MonadState (ImpTestState (BabelEra StandardCrypto)) m =>
+  KeyPair r (EraCrypto (BabelEra StandardCrypto)) ->
+  m (KeyHash r (EraCrypto (BabelEra StandardCrypto)))
 addKeyPair keyPair@(KeyPair vk _) = do
   ImpTestState {impKeyPairs} <- get
   let keyHash = hashKey vk
@@ -2989,8 +2753,8 @@ addKeyPair keyPair@(KeyPair vk _) = do
 -- created with `freshKeyHash` for this to work.
 lookupKeyPair ::
   HasCallStack =>
-  KeyHash r (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) (KeyPair r (EraCrypto (BabelEra c)))
+  KeyHash r (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) (KeyPair r (EraCrypto (BabelEra StandardCrypto)))
 lookupKeyPair keyHash = do
   keyPairs <- gets impKeyPairs
   case Map.lookup keyHash keyPairs of
@@ -3004,21 +2768,23 @@ lookupKeyPair keyHash = do
 -- | Generates a fresh `KeyHash` and stores the corresponding `KeyPair` in the
 -- ImpTestState. If you also need the `KeyPair` consider using `freshKeyPair` for
 -- generation or `lookupKeyPair` to look up the `KeyPair` corresponding to the `KeyHash`
-freshKeyHash :: Era (BabelEra c) => ImpTestM (BabelEra c) (KeyHash r (EraCrypto (BabelEra c)))
+freshKeyHash ::
+  ImpTestM (BabelEra StandardCrypto) (KeyHash r (EraCrypto (BabelEra StandardCrypto)))
 freshKeyHash = fst <$> freshKeyPair
 
 -- | Generate a random KeyPair and add it to the known keys in the Imp state
 freshKeyPair ::
-  (Era (BabelEra c), MonadState (ImpTestState (BabelEra c)) m, MonadGen m) =>
-  m (KeyHash r (EraCrypto (BabelEra c)), KeyPair r (EraCrypto (BabelEra c)))
+  (MonadState (ImpTestState (BabelEra StandardCrypto)) m, MonadGen m) =>
+  m (KeyHash r (EraCrypto (BabelEra StandardCrypto)), KeyPair r (EraCrypto (BabelEra StandardCrypto)))
 freshKeyPair = do
   keyPair <- arbitrary
   keyHash <- addKeyPair keyPair
   pure (keyHash, keyPair)
 
 freshKeyAddr ::
-  Era (BabelEra c) =>
-  ImpTestM (BabelEra c) (KeyHash r (EraCrypto (BabelEra c)), Addr (EraCrypto (BabelEra c)))
+  ImpTestM
+    (BabelEra StandardCrypto)
+    (KeyHash r (EraCrypto (BabelEra StandardCrypto)), Addr (EraCrypto (BabelEra StandardCrypto)))
 freshKeyAddr = do
   keyHash <- freshKeyHash
   pure (coerceKeyRole keyHash, Addr Testnet (KeyHashObj keyHash) StakeRefNull)
@@ -3026,7 +2792,9 @@ freshKeyAddr = do
 -- | Looks up the keypair corresponding to the `BootstrapAddress`. The `BootstrapAddress`
 -- must be created with `freshBootstrapAddess` for this to work.
 lookupByronKeyPair ::
-  HasCallStack => BootstrapAddress (EraCrypto (BabelEra c)) -> ImpTestM (BabelEra c) ByronKeyPair
+  HasCallStack =>
+  BootstrapAddress (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ByronKeyPair
 lookupByronKeyPair bootAddr = do
   keyPairs <- gets impByronKeyPairs
   case Map.lookup bootAddr keyPairs of
@@ -3040,10 +2808,12 @@ lookupByronKeyPair bootAddr = do
 -- | Generates a fresh `KeyHash` and stores the corresponding `ByronKeyPair` in the
 -- ImpTestState. If you also need the `ByronKeyPair` consider using `freshByronKeyPair` for
 -- generation or `lookupByronKeyPair` to look up the `ByronKeyPair` corresponding to the `KeyHash`
-freshByronKeyHash :: Era (BabelEra c) => ImpTestM (BabelEra c) (KeyHash r (EraCrypto (BabelEra c)))
+freshByronKeyHash ::
+  ImpTestM (BabelEra StandardCrypto) (KeyHash r (EraCrypto (BabelEra StandardCrypto)))
 freshByronKeyHash = coerceKeyRole . bootstrapKeyHash <$> freshBootstapAddress
 
-freshBootstapAddress :: ImpTestM (BabelEra c) (BootstrapAddress (EraCrypto (BabelEra c)))
+freshBootstapAddress ::
+  ImpTestM (BabelEra StandardCrypto) (BootstrapAddress (EraCrypto (BabelEra StandardCrypto)))
 freshBootstapAddress = do
   ImpTestState {impByronKeyPairs} <- get
   keyPair@(ByronKeyPair verificationKey _) <- arbitrary
@@ -3060,31 +2830,17 @@ freshBootstapAddress = do
   pure bootAddr
 
 sendCoinTo ::
-  ( HasCallStack
-  , Crypto c
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  ) =>
-  Addr (EraCrypto (BabelEra c)) ->
+  HasCallStack =>
+  Addr (EraCrypto (BabelEra StandardCrypto)) ->
   Coin ->
-  ImpTestM (BabelEra c) (TxIn (EraCrypto (BabelEra c)))
+  ImpTestM (BabelEra StandardCrypto) (TxIn (EraCrypto (BabelEra StandardCrypto)))
 sendCoinTo addr = sendValueTo addr . inject
 
 sendValueTo ::
-  ( HasCallStack
-  , Crypto c
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  ) =>
-  Addr (EraCrypto (BabelEra c)) ->
-  Value (BabelEra c) ->
-  ImpTestM (BabelEra c) (TxIn (EraCrypto (BabelEra c)))
+  HasCallStack =>
+  Addr (EraCrypto (BabelEra StandardCrypto)) ->
+  Value (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (TxIn (EraCrypto (BabelEra StandardCrypto)))
 sendValueTo addr amount = do
   tx <-
     submitTxAnn
@@ -3096,65 +2852,46 @@ sendValueTo addr amount = do
   pure $ txInAt (0 :: Int) tx
 
 -- | Modify the current new epoch state with a function
-modifyNES :: (NewEpochState (BabelEra c) -> NewEpochState (BabelEra c)) -> ImpTestM (BabelEra c) ()
+modifyNES ::
+  (NewEpochState (BabelEra StandardCrypto) -> NewEpochState (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 modifyNES = (impNESL %=)
 
 -- | Get a value from the current new epoch state using the lens
-getsNES :: SimpleGetter (NewEpochState (BabelEra c)) a -> ImpTestM (BabelEra c) a
+getsNES ::
+  SimpleGetter (NewEpochState (BabelEra StandardCrypto)) a -> ImpTestM (BabelEra StandardCrypto) a
 getsNES l = gets . view $ impNESL . l
 
-getUTxO :: ImpTestM (BabelEra c) (UTxO (BabelEra c))
+getUTxO :: ImpTestM (BabelEra StandardCrypto) (UTxO (BabelEra StandardCrypto))
 getUTxO = getsNES $ nesEsL . esLStateL . lsUTxOStateL . utxosUtxoL
 
-getProtVer :: EraGov (BabelEra c) => ImpTestM (BabelEra c) ProtVer
+getProtVer :: ImpTestM (BabelEra StandardCrypto) ProtVer
 getProtVer = getsNES $ nesEsL . curPParamsEpochStateL . ppProtocolVersionL
 
 submitTxAnn ::
-  ( HasCallStack
-  , Crypto c
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  ) =>
+  HasCallStack =>
   String ->
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) (Tx (BabelEra c))
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
 submitTxAnn msg tx = impAnn msg (trySubmitTx tx >>= expectRightDeepExpr)
 
 submitTxAnn_ ::
-  ( HasCallStack
-  , Crypto c
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  ) =>
+  HasCallStack =>
   String ->
-  Tx (BabelEra c) ->
-  ImpTestM (BabelEra c) ()
+  Tx (BabelEra StandardCrypto) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 submitTxAnn_ msg = void . submitTxAnn msg
 
 getRewardAccountFor ::
-  Credential 'Staking (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) (RewardAccount (EraCrypto (BabelEra c)))
+  Credential 'Staking (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) (RewardAccount (EraCrypto (BabelEra StandardCrypto)))
 getRewardAccountFor stakingC = do
   networkId <- use (to impGlobals . to networkId)
   pure $ RewardAccount networkId stakingC
 
 registerRewardAccount ::
-  forall c.
-  ( HasCallStack
-  , NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  ImpTestM (BabelEra c) (RewardAccount (EraCrypto (BabelEra c)))
+  HasCallStack =>
+  ImpTestM (BabelEra StandardCrypto) (RewardAccount (EraCrypto (BabelEra StandardCrypto)))
 registerRewardAccount = do
   khDelegator <- freshKeyHash
   kpDelegator <- lookupKeyPair khDelegator
@@ -3171,12 +2908,14 @@ registerRewardAccount = do
         ]
       & bodyTxL
       . certsTxBodyL
-      .~ SSeq.fromList [RegTxCert @(BabelEra c) stakingCredential]
+      .~ SSeq.fromList [RegTxCert @(BabelEra StandardCrypto) stakingCredential]
   networkId <- use (to impGlobals . to networkId)
   pure $ RewardAccount networkId stakingCredential
 
 lookupReward ::
-  HasCallStack => Credential 'Staking (EraCrypto (BabelEra c)) -> ImpTestM (BabelEra c) Coin
+  HasCallStack =>
+  Credential 'Staking (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) Coin
 lookupReward stakingCredential = do
   umap <- getsNES (nesEsL . epochStateUMapL)
   case UMap.lookup stakingCredential (RewDepUView umap) of
@@ -3189,14 +2928,7 @@ lookupReward stakingCredential = do
     Just rd -> pure $ fromCompact (rdReward rd)
 
 registerPool ::
-  ( NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  ImpTestM (BabelEra c) (KeyHash 'StakePool (EraCrypto (BabelEra c)))
+  ImpTestM (BabelEra StandardCrypto) (KeyHash 'StakePool (EraCrypto (BabelEra StandardCrypto)))
 registerPool = do
   khPool <- freshKeyHash
   rewardAccount <- registerRewardAccount
@@ -3222,15 +2954,8 @@ registerPool = do
   pure khPool
 
 registerAndRetirePoolToMakeReward ::
-  ( NFData (SigDSIGN (DSIGN c))
-  , NFData (VerKeyDSIGN (DSIGN c))
-  , Signable
-      (DSIGN c)
-      (Hash (HASH c) EraIndependentTxBody)
-  , Crypto c
-  ) =>
-  Credential 'Staking (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) ()
+  Credential 'Staking (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) ()
 registerAndRetirePoolToMakeReward stakingC = do
   poolKH <- freshKeyHash
   networkId <- use (to impGlobals . to networkId)
@@ -3265,63 +2990,65 @@ registerAndRetirePoolToMakeReward stakingC = do
 
 -- | Compose given function with the configured fixup
 withCustomFixup ::
-  ( (Tx (BabelEra c) -> ImpTestM (BabelEra c) (Tx (BabelEra c))) ->
-    Tx (BabelEra c) ->
-    ImpTestM (BabelEra c) (Tx (BabelEra c))
+  ( (Tx (BabelEra StandardCrypto) -> ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))) ->
+    Tx (BabelEra StandardCrypto) ->
+    ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))
   ) ->
-  ImpTestM (BabelEra c) a ->
-  ImpTestM (BabelEra c) a
+  ImpTestM (BabelEra StandardCrypto) a ->
+  ImpTestM (BabelEra StandardCrypto) a
 withCustomFixup f = local $ iteFixupL %~ f
 
 -- | Replace all fixup with the given function
 withFixup ::
-  (Tx (BabelEra c) -> ImpTestM (BabelEra c) (Tx (BabelEra c))) ->
-  ImpTestM (BabelEra c) a ->
-  ImpTestM (BabelEra c) a
+  (Tx (BabelEra StandardCrypto) -> ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))) ->
+  ImpTestM (BabelEra StandardCrypto) a ->
+  ImpTestM (BabelEra StandardCrypto) a
 withFixup f = withCustomFixup (const f)
 
 -- | Performs the action without running the fix-up function on any transactions
-withNoFixup :: ImpTestM (BabelEra c) a -> ImpTestM (BabelEra c) a
+withNoFixup :: ImpTestM (BabelEra StandardCrypto) a -> ImpTestM (BabelEra StandardCrypto) a
 withNoFixup = withFixup pure
 
 -- | Apply given fixup function before the configured fixup
 withPreFixup ::
-  (Tx (BabelEra c) -> ImpTestM (BabelEra c) (Tx (BabelEra c))) ->
-  ImpTestM (BabelEra c) a ->
-  ImpTestM (BabelEra c) a
+  (Tx (BabelEra StandardCrypto) -> ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))) ->
+  ImpTestM (BabelEra StandardCrypto) a ->
+  ImpTestM (BabelEra StandardCrypto) a
 withPreFixup f = withCustomFixup (f >=>)
 
 -- | Apply given fixup function after the configured fixup
 withPostFixup ::
-  (Tx (BabelEra c) -> ImpTestM (BabelEra c) (Tx (BabelEra c))) ->
-  ImpTestM (BabelEra c) a ->
-  ImpTestM (BabelEra c) a
+  (Tx (BabelEra StandardCrypto) -> ImpTestM (BabelEra StandardCrypto) (Tx (BabelEra StandardCrypto))) ->
+  ImpTestM (BabelEra StandardCrypto) a ->
+  ImpTestM (BabelEra StandardCrypto) a
 withPostFixup f = withCustomFixup (>=> f)
 
-expectRegisteredRewardAddress :: RewardAccount (EraCrypto (BabelEra c)) -> ImpTestM (BabelEra c) ()
+expectRegisteredRewardAddress ::
+  RewardAccount (EraCrypto (BabelEra StandardCrypto)) -> ImpTestM (BabelEra StandardCrypto) ()
 expectRegisteredRewardAddress (RewardAccount _ cred) = do
   umap <- getsNES $ nesEsL . esLStateL . lsCertStateL . certDStateL . dsUnifiedL
   Map.member cred (rdPairMap umap) `shouldBe` True
 
 expectNotRegisteredRewardAddress ::
-  RewardAccount (EraCrypto (BabelEra c)) -> ImpTestM (BabelEra c) ()
+  RewardAccount (EraCrypto (BabelEra StandardCrypto)) -> ImpTestM (BabelEra StandardCrypto) ()
 expectNotRegisteredRewardAddress (RewardAccount _ cred) = do
   umap <- getsNES $ nesEsL . esLStateL . lsCertStateL . certDStateL . dsUnifiedL
   Map.member cred (rdPairMap umap) `shouldBe` False
 
-expectTreasury :: HasCallStack => Coin -> ImpTestM (BabelEra c) ()
+expectTreasury :: HasCallStack => Coin -> ImpTestM (BabelEra StandardCrypto) ()
 expectTreasury c =
   impAnn "Checking treasury amount" $ do
     treasuryAmt <- getsNES $ nesEsL . esAccountStateL . asTreasuryL
     c `shouldBe` treasuryAmt
 
 impGetNativeScript ::
-  ScriptHash (EraCrypto (BabelEra c)) -> ImpTestM (BabelEra c) (Maybe (NativeScript (BabelEra c)))
+  ScriptHash (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) (Maybe (NativeScript (BabelEra StandardCrypto)))
 impGetNativeScript sh = Map.lookup sh <$> gets impNativeScripts
 
 impLookupUTxO ::
-  TxIn (EraCrypto (BabelEra c)) ->
-  ImpTestM (BabelEra c) (TxOut (BabelEra c))
+  TxIn (EraCrypto (BabelEra StandardCrypto)) ->
+  ImpTestM (BabelEra StandardCrypto) (TxOut (BabelEra StandardCrypto))
 impLookupUTxO txIn = impAnn "Looking up TxOut" $ do
   utxo <- getUTxO
   case txinLookup txIn utxo of

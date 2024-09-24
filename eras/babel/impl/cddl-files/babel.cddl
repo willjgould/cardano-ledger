@@ -15,8 +15,10 @@ transaction =
   , transaction_witness_set
   , bool
   , auxiliary_data / null
+  , swaps / null
   ]
 
+swaps = [ * transaction ]
 transaction_index = uint .size 2
 
 header =
@@ -71,14 +73,14 @@ transaction_body =
   , ? 20 : proposal_procedures             ; Proposal procedures
   , ? 21 : coin                            ; current treasury value
   , ? 22 : positive_coin                   ; donation
-  , ? 23 : set<intent_fulfill>             ; New; Intent fulfillments
-  , ? 24 : [* intent_request]              ; New; Intent asks/ requests
-  , ? 25 : set<transaction_input>          ; New; Required transactions
+  , ? 23 : set<$hash32>                    ; New; Swaps
+  , ? 24 : set<scripthash>                 ; New; Observer Scripts
+  , ? 25 : [* spend_out]                   ; New; Spend Outs
+  , ? 26 : set<cor_input>                  ; New; Cor Inputs
   }
 
-intent_fulfill = transaction_input
-intent_request = transaction_output
-fulfillment_request_transaction_output = [(intent_fulfill, intent_request)]
+spend_out = transaction_output
+cor_input = transaction_input
 
 voting_procedures = { + voter => { + gov_action_id => voting_procedure } }
 

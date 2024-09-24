@@ -87,7 +87,6 @@ import Cardano.Ledger.Crypto
 import Cardano.Ledger.MemoBytes (EqRaw (..))
 import Cardano.Ledger.Plutus.ExUnits (txscriptfee)
 import qualified Cardano.Ledger.Shelley.UTxO as Shelley
-import Cardano.Ledger.TxIn (TxId)
 import Cardano.Ledger.Val (Val (..))
 import Control.DeepSeq (NFData)
 import qualified Data.ByteString.Lazy as LBS
@@ -238,18 +237,18 @@ instance
 -- | Construct an annotated Babel style transaction.
 babelSegwitTx ::
   BabelEraTx era =>
-  (Seq (TxId (EraCrypto era)) -> Seq (Tx era)) ->
   Annotator (TxBody era) ->
   Annotator (TxWits era) ->
   IsValid ->
   Maybe (Annotator (TxAuxData era)) ->
   -- TODO WG these might be wrong
-  Maybe (Seq (TxId (EraCrypto era))) ->
+  Maybe (Annotator (Seq (Tx era))) ->
   Annotator (Tx era)
-babelSegwitTx mkMap txBodyAnn txWitsAnn btxIsValid auxDataAnn swapsAnn = Annotator $ \bytes ->
+babelSegwitTx txBodyAnn txWitsAnn btxIsValid auxDataAnn swapsAnn = Annotator $ \bytes ->
   let txBody = runAnnotator txBodyAnn bytes
       txWits = runAnnotator txWitsAnn bytes
       txAuxData = maybeToStrictMaybe (flip runAnnotator bytes <$> auxDataAnn)
+      txSwaps = maybeToStrictMaybe (forceToStrict . flip runAnnotator bytes <$> swapsAnn)
    in mkBasicTx txBody
         & witsTxL
         .~ txWits
@@ -258,7 +257,7 @@ babelSegwitTx mkMap txBodyAnn txWitsAnn btxIsValid auxDataAnn swapsAnn = Annotat
         & isValidTxL
         .~ btxIsValid
         & subTxTxL
-        .~ maybeToStrictMaybe (fmap (forceToStrict . mkMap) swapsAnn)
+        .~ txSwaps
 
 --------------------------------------------------------------------------------
 -- Mempool Serialisation
@@ -301,7 +300,7 @@ toCBORForMempoolSubmission
         !> To btxWits
         !> To btxIsValid
         !> E (encodeNullMaybe encCBOR . strictMaybeToMaybe) btxAuxiliaryData
-        !> To btxSwaps
+        !> E (encodeNullMaybe encCBOR . strictMaybeToMaybe) btxSwaps
 
 instance
   ( Era era
@@ -339,8 +338,7 @@ instance
           ( sequence . maybeToStrictMaybe
               <$> decodeNullMaybe decCBOR
           )
-        <*! D (traverse sequence <$> decCBOR)
-  -- <*! Ann From
+        <*! D (traverse sequence . maybeToStrictMaybe <$> decodeNullMaybe decCBOR)
   {-# INLINE decCBOR #-}
 
 -- =======================================================================

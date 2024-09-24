@@ -52,7 +52,6 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Builder (shortByteString, toLazyByteString)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Coerce (coerce)
-import Data.Foldable (toList)
 import qualified Data.Map.Strict as Map
 import Data.Maybe.Strict (StrictMaybe, strictMaybeToMaybe)
 import Data.Proxy (Proxy (..))
@@ -60,7 +59,6 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Sequence.Strict (StrictSeq)
 import qualified Data.Sequence.Strict as StrictSeq
-import qualified Data.Set as Set
 import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
 import Lens.Micro
@@ -92,7 +90,7 @@ data BabelTxSeq era = BabelTxSeqRaw
   }
   deriving (Generic)
 
-instance Crypto c => EraSegWits (BabelEra c) where
+instance (Crypto c, DecCBOR (Annotator (Seq (Tx (BabelEra c))))) => EraSegWits (BabelEra c) where
   type TxSeq (BabelEra c) = BabelTxSeq (BabelEra c)
   fromTxSeq :: Core.TxSeq (BabelEra c) -> StrictSeq (Tx (BabelEra c))
   fromTxSeq = txSeqTxns
@@ -227,11 +225,12 @@ hashBabelTxSeq (BabelTxSeqRaw _ bodies ws md vs swaps) =
     hashStrict = Hash.hashWith id
     hashPart = shortByteString . Hash.hashToBytesShort . hashStrict . BSL.toStrict
 
-instance BabelEraTx era => DecCBOR (Annotator (TxSeq era)) where
+instance (BabelEraTx era, DecCBOR (Annotator (Seq (Tx era)))) => DecCBOR (Annotator (TxSeq era)) where
   decCBOR = do
     (bodies, bodiesAnn) <- withSlice decCBOR
     (ws, witsAnn) <- withSlice decCBOR
-    (swaps :: Seq (Maybe (Seq (TxId (EraCrypto era)))), swapsAnn) <- withSlice decCBOR
+    -- (swaps :: Seq (Maybe (Seq (TxId (EraCrypto era)))), swapsAnn) <- withSlice decCBOR
+    (swaps :: Seq (Maybe (Annotator (Seq (Tx era)))), swapsAnn) <- withSlice decCBOR
     let b = length bodies
         inRange x = (0 <= x) && (x <= (b - 1))
         w = length ws
@@ -268,14 +267,10 @@ instance BabelEraTx era => DecCBOR (Annotator (TxSeq era)) where
       )
 
     -- TODO WG: I think I'm tying the knot right but double check
-    let txMap = (Map.fromList . toList) . fmap (\tx -> (txIdTx tx, tx)) <$> txns
-        entriesMatching :: Ord k => Map.Map k v -> Seq k -> Seq v
-        entriesMatching m = Seq.fromList . Map.elems . Map.restrictKeys m . (Set.fromList . toList)
-        txns = do
-          txMap' <- txMap
+    let txns = do
           sequenceA $
             zipWith5
-              (babelSegwitTx (entriesMatching txMap'))
+              babelSegwitTx
               bodies
               ws
               vs

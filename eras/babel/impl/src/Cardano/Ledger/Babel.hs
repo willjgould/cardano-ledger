@@ -32,14 +32,16 @@ import Cardano.Ledger.Babel.TxInfo ()
 import Cardano.Ledger.Babel.TxOut ()
 import Cardano.Ledger.Babel.TxSeq (BabelTxSeq)
 import Cardano.Ledger.Babel.UTxO ()
+import Cardano.Ledger.Binary.Decoding
 import Cardano.Ledger.Conway.Governance (RunConwayRatify (..))
-import Cardano.Ledger.Core (EraIndependentTxBody, EraSegWits (TxSeq))
+import Cardano.Ledger.Core (EraIndependentTxBody, EraSegWits (TxSeq), EraTx (..))
 import Cardano.Ledger.Crypto (Crypto (DSIGN), HASH, StandardCrypto)
 import Cardano.Ledger.Keys (DSignable)
 import Cardano.Ledger.Shelley.API (ApplyTx (reapplyTx), LedgerState)
 import Cardano.Ledger.Shelley.API.Genesis (CanStartFromGenesis (..))
 import Cardano.Ledger.Shelley.API.Validation (ApplyBlock)
 import Data.Default.Class (Default)
+import Data.Sequence
 
 type Babel = BabelEra StandardCrypto
 
@@ -60,6 +62,7 @@ instance
   , DSignable c (Hash c EraIndependentTxBody)
   , Signable (DSIGN c) (Hash (Cardano.Ledger.Crypto.HASH c) EraIndependentTxBody)
   , TxSeq (BabelEra c) ~ BabelTxSeq (BabelEra c)
+  , DecCBOR (Annotator (Seq (Tx (BabelEra c))))
   ) =>
   ApplyBlock (BabelEra c)
 

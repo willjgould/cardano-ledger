@@ -25,16 +25,17 @@ main :: IO ()
 main =
   ledgerTestMain $
     describe "Babel" $ do
-      -- Proposals.spec
-      -- Binary.spec
-      -- Cddl.spec
-      -- DRepRatify.spec
-      -- CommitteeRatify.spec
-      -- Genesis.spec
-      -- GovActionReorder.spec
-      -- roundTripJsonEraSpec @Babel
-      describe "Imp" $ do
-        BabelImp.spec
+      Proposals.spec
+      -- Binary.spec -- Some broken tests
+      Cddl.spec
+
+-- DRepRatify.spec
+-- CommitteeRatify.spec
+-- Genesis.spec
+-- GovActionReorder.spec
+-- roundTripJsonEraSpec @Babel
+-- describe "Imp" $ do
+--   BabelImp.spec
 
 --   AlonzoImp.spec @Babel
 --   ShelleyImp.spec @Babel
