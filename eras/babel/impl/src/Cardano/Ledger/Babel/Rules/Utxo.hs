@@ -261,6 +261,7 @@ data BabelUtxoPredFailure era
   | CheckCorInsOutsFailure
   | CheckInsInUtxoFailure
   | CheckSubTxsValidFailure
+  | CheckSingleInvalidFailure -- TODO WG Bad name
   deriving (Generic)
 
 type instance EraRuleFailure "UTXO" (BabelEra c) = BabelUtxoPredFailure (BabelEra c)
@@ -376,7 +377,7 @@ utxoTransition ::
   ) =>
   TransitionRule (EraRule "UTXO" era)
 utxoTransition = do
-  TRC (BabelUtxoEnv slot pp _certState _bobs batchData, utxos, tx) <- trace "PASS" judgmentContext
+  TRC (BabelUtxoEnv slot pp _certState _bobs batchData, utxos, tx) <- judgmentContext
   let utxo = utxosUtxo utxos
 
   {-   txb := txbody tx   -}
@@ -578,6 +579,7 @@ instance
       CheckCorInsOutsFailure -> Sum CheckCorInsOutsFailure 34
       CheckInsInUtxoFailure -> Sum CheckInsInUtxoFailure 35
       CheckSubTxsValidFailure -> Sum CheckSubTxsValidFailure 36
+      CheckSingleInvalidFailure -> Sum CheckSingleInvalidFailure 37
 instance
   ( Era era
   , DecCBOR (TxOut era)
@@ -624,6 +626,7 @@ instance
     34 -> SumD CheckCorInsOutsFailure
     35 -> SumD CheckInsInUtxoFailure
     36 -> SumD CheckSubTxsValidFailure
+    37 -> SumD CheckSingleInvalidFailure
     n -> Invalid n
 
 -- =====================================================

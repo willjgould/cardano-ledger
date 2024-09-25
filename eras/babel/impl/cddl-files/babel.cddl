@@ -450,15 +450,17 @@ transaction_witness_set =
   , ? 5: redeemers
   , ? 6: nonempty_set<plutus_v2_script>
   , ? 7: nonempty_set<plutus_v3_script>
+  , ? 8: nonempty_set<plutus_v4_script>
   }
 
-; The real type of  plutus_v1_script, plutus_v2_script and plutus_v3_script is bytes.
+; The real type of  plutus_v1_script, plutus_v2_script, plutus_v3_script and plutus_v4_script is bytes.
 ; However, because we enforce uniqueness when many scripts are supplied,
 ; we need to hack around for tests in order to avoid generating duplicates,
 ; since the cddl tool we use for roundtrip testing doesn't generate distinct collections.
 plutus_v1_script = distinct<bytes>
 plutus_v2_script = distinct<bytes>
 plutus_v3_script = distinct<bytes>
+plutus_v4_script = distinct<bytes>
 
 plutus_data =
     constr<plutus_data>
@@ -504,6 +506,7 @@ ex_unit_prices =
 language = 0 ; Plutus v1
          / 1 ; Plutus v2
          / 2 ; Plutus v3
+         / 3 ; Plutus v4
 
 potential_languages = 0 .. 255
 
@@ -514,7 +517,8 @@ costmdls =
   { ? 0 : [ 166* int ] ; Plutus v1, only 166 integers are used, but more are accepted (and ignored)
   , ? 1 : [ 175* int ] ; Plutus v2, only 175 integers are used, but more are accepted (and ignored)
   , ? 2 : [ 233* int ] ; Plutus v3, only 233 integers are used, but more are accepted (and ignored)
-  , ? 3 : [ int ] ; Any 8-bit unsigned number can be used as a key.
+  , ? 3 : [ 233* int ] ; Plutus v4, only 233 integers are used, but more are accepted (and ignored)
+  , ? 4 : [ int ] ; Any 8-bit unsigned number can be used as a key.
   }
 
 transaction_metadatum =
@@ -537,6 +541,7 @@ auxiliary_data =
       , ? 2 => [ * plutus_v1_script ]
       , ? 3 => [ * plutus_v2_script ]
       , ? 4 => [ * plutus_v3_script ]
+      , ? 5 => [ * plutus_v4_script ]
       })
 
 vkeywitness = [ $vkey, $signature ]
@@ -605,6 +610,7 @@ pool_metadata_hash    = $hash32
 ;   "\x01" for Plutus V1 scripts
 ;   "\x02" for Plutus V2 scripts
 ;   "\x03" for Plutus V3 scripts
+;   "\x04" for Plutus V4 scripts
 scripthash            = $hash28
 
 datum_hash = $hash32
@@ -614,4 +620,4 @@ datum_option = [ 0, $hash32 // 1, data ]
 
 script_ref = #6.24(bytes .cbor script)
 
-script = [ 0, native_script // 1, plutus_v1_script // 2, plutus_v2_script // 3, plutus_v3_script ]
+script = [ 0, native_script // 1, plutus_v1_script // 2, plutus_v2_script // 3, plutus_v3_script, plutus_v4_script ]

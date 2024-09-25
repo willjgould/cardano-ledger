@@ -38,7 +38,9 @@ import Data.Ratio ((%))
 import qualified Data.Sequence as Seq
 import Data.Word (Word64)
 import Lens.Micro
-import Test.Cardano.Ledger.Babel.ImpTest
+import Test.Cardano.Ledger.Alonzo.ImpTest
+import Test.Cardano.Ledger.Babel.ImpTest ()
+import Test.Cardano.Ledger.Conway.ImpTest
 import Test.Cardano.Ledger.Core.Rational
 import Test.Cardano.Ledger.Imp.Common
 import Type.Reflection (Typeable)

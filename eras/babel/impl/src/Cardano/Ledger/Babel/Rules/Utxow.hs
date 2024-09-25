@@ -48,7 +48,6 @@ import Cardano.Ledger.AuxiliaryData (AuxiliaryDataHash)
 import Cardano.Ledger.Babbage.Rules (
   BabbageUtxoPredFailure,
   BabbageUtxowPredFailure,
-  babbageMissingScripts,
   validateFailedBabbageScripts,
   validateScriptsWellFormed,
  )
@@ -437,6 +436,7 @@ babelUtxowTransition = do
   -- check scripts
   {- neededHashes := {h | ( , h) ∈ scriptsNeeded utxo txb} -}
   {- neededHashes − dom(refScripts tx utxo) = dom(txwitscripts txw) -}
+  -- neededHashes ＼ refScriptHashes ≡ᵉ witsScriptHashes
   let scriptsNeeded = getScriptsNeeded utxo txBody -- TODO WG
       scriptsProvided = getScriptsProvided utxo tx
       scriptHashesNeeded = getScriptsHashesNeeded scriptsNeeded
@@ -444,10 +444,10 @@ babelUtxowTransition = do
   -- CHANGED In BABBAGE txscripts depends on UTxO
   runTest $ validateFailedBabbageScripts tx scriptsProvided scriptHashesNeeded
 
-  {- neededHashes − dom(refScripts tx utxo) = dom(txwitscripts txw) -}
+  {- neededHashes ＼ refScriptHashes ⊆ witsScriptHashes -- TODO Polina: this is relaxed because extra scripts are in batchScripts! is this ok? -}
   let sReceived = Map.keysSet $ tx ^. witsTxL . scriptTxWitsL
       sRefs = Map.keysSet $ getReferenceScripts utxo inputs
-  runTest $ babbageMissingScripts pp scriptHashesNeeded sRefs sReceived
+  runTest $ babelMissingScripts pp scriptHashesNeeded sRefs sReceived
 
   {-  inputHashes ⊆  dom(txdats txw) ⊆  allowed -}
   runTest $ missingRequiredDatums utxo tx
@@ -488,6 +488,21 @@ babelUtxowTransition = do
   runTest $ noSubsInSubs batchData tx
 
   trans @(EraRule "UTXO" era) $ TRC (utxoEnv, u, tx)
+
+-- neededHashes ＼ refScriptHashes ⊆ witsScriptHashes -- TODO Polina: this is relaxed because extra scripts are in batchScripts! is this ok?
+babelMissingScripts ::
+  forall era.
+  PParams era ->
+  Set (ScriptHash (EraCrypto era)) ->
+  Set (ScriptHash (EraCrypto era)) ->
+  Set (ScriptHash (EraCrypto era)) ->
+  Test (ShelleyUtxowPredFailure era)
+babelMissingScripts _ sNeeded sRefs sReceived =
+  failureUnless (Set.null missing) $
+    Shelley.MissingScriptWitnessesUTXOW missing
+  where
+    neededNonRefs = sNeeded `Set.difference` sRefs
+    missing = neededNonRefs `Set.difference` sReceived
 
 chkRequiredBatchObservers ::
   Set (ScriptHash (EraCrypto era)) ->

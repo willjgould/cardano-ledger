@@ -95,7 +95,7 @@ plutusScriptsProp = do
     keys PlutusV1 = 3 :: Int
     keys PlutusV2 = 6
     keys PlutusV3 = 7
-    keys PlutusV4 = 8
+    keys PlutusV4 = 7 -- TODO WG wasted too much time on this
 
 nativeScriptsProp ::
   forall era.

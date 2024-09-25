@@ -123,28 +123,32 @@ import qualified Test.Cardano.Ledger.Babel.Imp.GovSpec as Gov
 import qualified Test.Cardano.Ledger.Babel.Imp.RatifySpec as Ratify
 import qualified Test.Cardano.Ledger.Babel.Imp.UtxoSpec as Utxo
 import qualified Test.Cardano.Ledger.Babel.Imp.UtxosSpec as Utxos
-import Test.Cardano.Ledger.Babel.ImpTest (
-  ImpTestEnv (..),
-  ImpTestM,
-  ImpTestState (..),
-  freshKeyAddr,
-  getUTxO,
-  impAnn,
-  impLedgerEnv,
-  impNESL,
-  impRootTxInL,
-  largeValue,
-  logToExpr,
-  lookupImpRootTxOut,
-  makeCollateralInput,
-  mediumValue,
-  smallValue,
-  submitTxAnn,
-  totalSupply,
-  tryRunImpRule,
-  updateAddrTxWits,
-  withImpStateWithProtVer,
- )
+import Test.Cardano.Ledger.Shelley.Imp hiding (spec)
+
+-- import Test.Cardano.Ledger.Babel.ImpTest (
+--   ImpTestEnv (..),
+--   ImpTestM,
+--   ImpTestState (..),
+--   freshKeyAddr,
+--   getUTxO,
+--   impAnn,
+--   impLedgerEnv,
+--   impNESL,
+--   impRootTxInL,
+--   largeValue,
+--   logToExpr,
+--   lookupImpRootTxOut,
+--   makeCollateralInput,
+--   mediumValue,
+--   smallValue,
+--   submitTxAnn,
+--   totalSupply,
+--   tryRunImpRule,
+--   updateAddrTxWits,
+--   withImpStateWithProtVer,
+--  )
+
+import Test.Cardano.Ledger.Babel.ImpTest
 import Test.Cardano.Ledger.Common hiding (shouldBeLeftExpr)
 import Test.Cardano.Ledger.Core.Binary.RoundTrip (roundTripEraExpectation)
 import Test.Cardano.Ledger.Core.KeyPair (ByronKeyPair, KeyPair (..), mkAddr)
@@ -152,6 +156,7 @@ import Test.Cardano.Ledger.Core.Utils (txInAt)
 import Test.Cardano.Ledger.Imp.Common (shouldBeLeftExpr)
 import qualified Test.Cardano.Ledger.Imp.Common as Imp
 import Test.Cardano.Ledger.Plutus.Examples (guessTheNumber3)
+import Test.Cardano.Ledger.Shelley.ImpTest (ImpTestEnv (..), ImpTestM, ImpTestState (..))
 import Test.Cardano.Ledger.Shelley.Utils (RawSeed (..), mkKeyPair)
 import Test.QuickCheck.Random (QCGen)
 
@@ -166,13 +171,13 @@ spec =
 
 -- -- utxoSpec
 
--- -- Enact.spec @era
--- -- Epoch.spec @era
--- -- Gov.spec @era
--- -- GovCert.spec @era
--- -- Utxo.spec @era
--- -- Utxos.spec @era
--- -- Ratify.spec @era
+-- Enact.spec @era
+-- Epoch.spec @era
+-- Gov.spec @era
+-- GovCert.spec @era
+-- Utxo.spec @era
+-- Utxos.spec @era
+-- Ratify.spec @era
 -- -- describe "BabelImpSpec - bootstrap phase (protocol version 9)" $
 -- --   withImpState @era $ do
 -- --     Enact.relevantDuringBootstrapSpec @era
@@ -425,7 +430,7 @@ zoneSpec = describe "SWAPS" $ do
           . outputsTxBodyL
           .~ SSeq.fromList
             [ ffTx addr1 438935756 mempty
-            , ffTx addr2 479671124 mempty
+            , ffTx addr2 398588404 mempty
             , ffTx addrCollatReq1 27108750 mempty
             , ffTx addrCollatReq2 54012900 mempty
             , ffTx addrCollatFf 81326250 mempty
@@ -450,7 +455,7 @@ zoneSpec = describe "SWAPS" $ do
           .~ Set.singleton txMa1
           & bodyTxL
           . outputsTxBodyL
-          .~ SSeq.singleton (ffTx addr4 219431622 mempty)
+          .~ SSeq.singleton (ffTx addr4 259959012 mempty)
           & bodyTxL
           . collateralInputsTxBodyL
           .~ Set.singleton txCollatReq1
@@ -461,7 +466,7 @@ zoneSpec = describe "SWAPS" $ do
           .~ Set.singleton txMa2
           & bodyTxL
           . outputsTxBodyL
-          .~ SSeq.singleton (ffTx addr4 219431622 mempty)
+          .~ SSeq.singleton (ffTx addr4 178904232 mempty)
           & bodyTxL
           . collateralInputsTxBodyL
           .~ Set.singleton txCollatReq2

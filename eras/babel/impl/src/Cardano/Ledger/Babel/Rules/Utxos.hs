@@ -510,6 +510,8 @@ collectPlutusScriptsWithContext batchData epochInfo sysStart pp tx utxo =
     --
     -- We also need to pass major protocol version to the script for script evaluation
     protVerMajor = pvMajor (pp ^. ppProtocolVersionL)
+
+    -- TODO WG: You really need a unit test for this.
     costModels = costModelsValid $ pp ^. ppCostModelsL
 
     ScriptsProvided scriptsProvided = getScriptsProvided utxo tx

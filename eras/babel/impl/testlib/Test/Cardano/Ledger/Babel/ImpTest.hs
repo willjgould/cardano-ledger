@@ -256,10 +256,12 @@ import Test.Cardano.Ledger.Babbage.ImpTest (
   alonzoFixupTx,
   impAllegraSatisfyNativeScript,
   initAlonzoImpNES,
+  scriptTestContexts,
  )
 import Test.Cardano.Ledger.Babel.Arbitrary ()
 import Test.Cardano.Ledger.Babel.TreeDiff ()
 import Test.Cardano.Ledger.Conway.ImpTest (
+  ConwayEraImp,
   initShelleyImpNES,
   plutusTestScripts,
  )
@@ -276,11 +278,90 @@ import Test.Cardano.Ledger.Core.Rational (IsRatio (..))
 import Test.Cardano.Ledger.Core.Utils (mkDummySafeHash, testGlobals, txInAt)
 import Test.Cardano.Ledger.Imp.Common
 import Test.Cardano.Ledger.Plutus (PlutusArgs (..), ScriptTestContext (..), testingCostModels)
+import Test.Cardano.Ledger.Shelley.ImpTest (
+  ImpTestEnv (..),
+  ImpTestM (..),
+  ImpTestState (..),
+  ShelleyEraImp (..),
+ )
 import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..))
 import Test.Hspec.Core.Spec (Example (..), Params, paramsQuickCheckArgs)
 import Test.QuickCheck.Gen (Gen (..))
 import Test.QuickCheck.Random (QCGen (..), integerVariant, mkQCGen)
 import Type.Reflection (Typeable, typeOf)
+
+instance ShelleyEraImp (BabelEra StandardCrypto) where
+  initImpTestState = do
+    kh <- fst <$> freshKeyPair
+    let committee = Committee [(KeyHashObj kh, EpochNo 15)] (1 %! 1)
+    anchor <- arbitrary
+    let constitution = Constitution anchor SNothing
+    impNESL %= initConwayNES committee constitution
+    where
+      initConwayNES committee constitution nes =
+        let newNes =
+              (initAlonzoImpNES nes)
+                & nesEsL
+                . curPParamsEpochStateL
+                . ppDRepActivityL
+                .~ EpochInterval 100
+                & nesEsL
+                . curPParamsEpochStateL
+                . ppGovActionLifetimeL
+                .~ EpochInterval 30
+                & nesEsL
+                . curPParamsEpochStateL
+                . ppGovActionDepositL
+                .~ Coin 123
+                & nesEsL
+                . curPParamsEpochStateL
+                . ppCommitteeMaxTermLengthL
+                .~ EpochInterval 20
+                & nesEsL
+                . curPParamsEpochStateL
+                . ppCommitteeMinSizeL
+                .~ 1
+                & nesEsL
+                . curPParamsEpochStateL
+                . ppDRepVotingThresholdsL
+                %~ ( \dvt ->
+                      dvt
+                        { dvtCommitteeNormal = 1 %! 1
+                        , dvtCommitteeNoConfidence = 1 %! 2
+                        , dvtUpdateToConstitution = 1 %! 2
+                        }
+                   )
+                & nesEsL
+                . epochStateGovStateL
+                . committeeGovStateL
+                .~ SJust committee
+                & nesEsL
+                . epochStateGovStateL
+                . constitutionGovStateL
+                .~ constitution
+            epochState = newNes ^. nesEsL
+            ratifyState =
+              def
+                & rsEnactStateL
+                .~ mkEnactState (epochState ^. epochStateGovStateL)
+         in newNes & nesEsL .~ setCompleteDRepPulsingState def ratifyState epochState
+
+  impSatisfyNativeScript = impAllegraSatisfyNativeScript
+
+  modifyPParams = conwayModifyPParams
+
+  fixupTx = fxupTx
+
+instance MaryEraImp (BabelEra StandardCrypto)
+
+instance ShelleyEraImp (BabelEra StandardCrypto) => AlonzoEraImp (BabelEra StandardCrypto) where
+  scriptTestContexts =
+    plutusTestScripts SPlutusV1
+      <> plutusTestScripts SPlutusV2
+      <> plutusTestScripts SPlutusV3
+      <> plutusTestScripts SPlutusV4
+
+instance ConwayEraImp (BabelEra StandardCrypto)
 
 -- | Modify the PParams in the current state with the given function
 conwayModifyPParams ::
@@ -388,7 +469,7 @@ fixupDatums tx = impAnn "fixupDatums" $ do
     getData txOut = case txOut ^. datumTxOutF of
       DatumHash _dh ->
         spendDatum
-          <$> Map.lookup (txOutScriptHash txOut) scriptTestContexts
+          <$> Map.lookup (txOutScriptHash txOut) scriptTestContexts2
       _ -> Nothing
 
     txOutScriptHash txOut
@@ -398,9 +479,9 @@ fixupDatums tx = impAnn "fixupDatums" $ do
     spendDatum (ScriptTestContext _ (PlutusArgs _ (Just d))) = PlutusData.Data d
     spendDatum _ = error "Context does not have a spending datum"
 
-scriptTestContexts ::
+scriptTestContexts2 ::
   Map (ScriptHash (EraCrypto (BabelEra StandardCrypto))) ScriptTestContext
-scriptTestContexts =
+scriptTestContexts2 =
   plutusTestScripts SPlutusV1
     <> plutusTestScripts SPlutusV2
     <> plutusTestScripts SPlutusV3
@@ -503,7 +584,7 @@ impGetPlutusContexts tx = do
 impGetScriptContextMaybe ::
   ScriptHash (EraCrypto (BabelEra StandardCrypto)) ->
   Maybe ScriptTestContext
-impGetScriptContextMaybe sh = Map.lookup sh scriptTestContexts
+impGetScriptContextMaybe sh = Map.lookup sh scriptTestContexts2
 
 fixupRedeemerIndices ::
   Tx (BabelEra StandardCrypto) ->
@@ -1705,37 +1786,8 @@ impWitsVKeyNeeded txBody = do
         getWitsVKeyNeeded (ls ^. lsCertStateL) (ls ^. lsUTxOStateL . utxosUtxoL) txBody
   pure (bootAddrs, allKeyHashes Set.\\ bootKeyHashes)
 
-data ImpTestState era = ImpTestState
-  { impNES :: !(NewEpochState era)
-  , impRootTxIn :: !(TxIn (EraCrypto era))
-  , impKeyPairs :: !(forall k. Map (KeyHash k (EraCrypto era)) (KeyPair k (EraCrypto era)))
-  , impByronKeyPairs :: !(Map (BootstrapAddress (EraCrypto era)) ByronKeyPair)
-  , impNativeScripts :: !(Map (ScriptHash (EraCrypto era)) (NativeScript era))
-  , impLastTick :: !SlotNo
-  , impGlobals :: !Globals
-  , impLog :: !(Doc ())
-  , impGen :: !QCGen
-  , impEvents :: [SomeSTSEvent era]
-  }
-
-data ImpTestEnv era = ImpTestEnv
-  { iteState :: !(IORef (ImpTestState era))
-  , iteFixup :: Tx era -> ImpTestM era (Tx era)
-  , iteQuickCheckSize :: !Int
-  }
-
 iteFixupL :: Lens' (ImpTestEnv era) (Tx era -> ImpTestM era (Tx era))
 iteFixupL = lens iteFixup (\x y -> x {iteFixup = y})
-
-newtype ImpTestM era a = ImpTestM {_unImpTestM :: ReaderT (ImpTestEnv era) IO a}
-  deriving
-    ( Functor
-    , Applicative
-    , Monad
-    , MonadIO
-    , MonadUnliftIO
-    , MonadReader (ImpTestEnv era)
-    )
 
 modifyPParams ::
   (PParams (BabelEra StandardCrypto) -> PParams (BabelEra StandardCrypto)) ->
@@ -1746,71 +1798,6 @@ logStakeDistr :: ImpTestM (BabelEra StandardCrypto) ()
 logStakeDistr = do
   stakeDistr <- getsNES $ nesEsL . epochStateIncrStakeDistrL
   logEntry $ "Stake distr: " <> showExpr stakeDistr
-
-instance MonadWriter [SomeSTSEvent era] (ImpTestM era) where
-  writer (x, evs) = (impEventsL %= (<> evs)) $> x
-  listen act = do
-    oldEvs <- use impEventsL
-    impEventsL .= mempty
-    res <- act
-    newEvs <- use impEventsL
-    impEventsL .= oldEvs
-    pure (res, newEvs)
-  pass act = do
-    ((a, f), evs) <- listen act
-    writer (a, f evs)
-
-instance MonadFail (ImpTestM era) where
-  fail = assertFailure
-
-instance MonadState (ImpTestState era) (ImpTestM era) where
-  get = ImpTestM $ do
-    liftIO . readIORef . iteState =<< ask
-  put x = ImpTestM $ do
-    liftIO . flip writeIORef x . iteState =<< ask
-
-instance
-  DSIGN StandardCrypto ~ Ed25519DSIGN =>
-  Example (ImpTestM (BabelEra StandardCrypto) ())
-  where
-  type Arg (ImpTestM (BabelEra StandardCrypto) ()) = ImpTestState (BabelEra StandardCrypto)
-
-  evaluateExample impTest params =
-    evaluateExample (\s -> uncurry evalImpTestM (applyParamsQCGen params s) impTest) params
-
-instance
-  ( DSIGN StandardCrypto ~ Ed25519DSIGN
-  , Arbitrary a
-  , Show a
-  ) =>
-  Example (a -> ImpTestM (BabelEra StandardCrypto) ())
-  where
-  type Arg (a -> ImpTestM (BabelEra StandardCrypto) ()) = ImpTestState (BabelEra StandardCrypto)
-
-  evaluateExample impTest params =
-    evaluateExample (\s -> property $ uncurry evalImpTestM (applyParamsQCGen params s) . impTest) params
-
-instance MonadGen (ImpTestM era) where
-  liftGen (MkGen f) = do
-    qcSize <- iteQuickCheckSize <$> ask
-    StateGen qcGen <- subState split
-    pure $ f qcGen qcSize
-  variant n action = do
-    subState (\(StateGen qcGen) -> ((), StateGen (integerVariant (toInteger n) qcGen)))
-    action
-  sized f = do
-    qcSize <- iteQuickCheckSize <$> ask
-    f qcSize
-  resize n = local (\env -> env {iteQuickCheckSize = n})
-  choose r = subState (Random.randomR r)
-
-instance HasStatefulGen (StateGenM (ImpTestState era)) (ImpTestM era) where
-  askStatefulGen = pure StateGenM
-
-instance HasSubState (ImpTestState era) where
-  type SubState (ImpTestState era) = StateGen QCGen
-  getSubState = StateGen . impGen
-  setSubState s (StateGen g) = s {impGen = g}
 
 applyParamsQCGen ::
   Params ->

@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -168,6 +169,7 @@ import Control.Monad (foldM, unless, when)
 import Control.Monad.RWS (asks)
 import Control.SetAlgebra (eval, (◁))
 import Control.State.Transition (validate)
+import Data.Bifunctor (Bifunctor (..))
 import Data.Foldable (Foldable (foldl'), sequenceA_, toList)
 import Data.Function ((&))
 import Data.List (sort)
@@ -180,6 +182,7 @@ import Data.Sequence.Strict (StrictSeq (..))
 import Debug.Trace (trace, traceEvent)
 import NoThunks.Class (NoThunks)
 import Validation (failure, failureUnless)
+import Validation.Combinators (whenFailure, whenFailure_)
 
 newtype BabelLedgerPredFailure era
   = SwapsFailure (PredicateFailure (BabelSWAPS era)) -- Subtransition Failures
@@ -459,33 +462,41 @@ ledgerTransition =
                 else NormalTransaction
         {-   feesOK pp tx utxo   -}
         validate $ feesOK pp tx utxo
-        when (batchData == Batch parentTxId (IsValid True)) $
-          do
-            -- we seem to NOT need this one: ∙ batchValid ≡ foldr (λ p q → q ∧ (p .Tx.isValid)) true txs --7
-            -- consumed pp u (body ∷ txBods) ≡ produced pp u (body ∷ txBods)
-            runTest $
+
+        -- we seem to NOT need this one: ∙ batchValid ≡ foldr (λ p q → q ∧ (p .Tx.isValid)) true txs --7
+        -- consumed pp u (body ∷ txBods) ≡ produced pp u (body ∷ txBods)
+
+        let batchChecks =
               validateValueNotConservedUTxO
                 pp
                 utxo
                 certState
                 (parentTxBody : subTxBodies)
-            -- chkReqBOs (body ∷ txBods) body
-            runTest $ chkReqBOs (parentTxBody : subTxBodies) parentTxBody
-            -- Check not written in Agda spec yet
-            runTest $ chkSubTxsUniqueAndMatchingTopLevel tx
+                <> chkCorIns -- chkCorIns (body ∷ txBods) (body .TxBody.corInputs )
+                  (parentTxBody : subTxBodies)
+                  (parentTxBody ^. corInputsTxBodyL)
+                -- chkCorInsOuts (body ∷ txBods) (utx ∣ corInputs)
+                <> chkCorInsOuts
+                  (parentTxBody : subTxBodies)
+                  (UTxO $ unUTxO utxo `Map.restrictKeys` (parentTxBody ^. corInputsTxBodyL))
+
+        runTest $
+          whenFailure_
+            batchChecks
+            ( \e ->
+                first
+                  (<> e)
+                  (failureUnless (singleInvalid batchData subTxs) CheckSingleInvalidFailure)
+            )
+
+        -- whenFailure
+        runTest $
+          chkSubTxsUniqueAndMatchingTopLevel tx
 
         -- Assuming TX's size is its own size plus the sum of all its subTxs sizes
         runTestOnSignal $ validateMaxTxSizeUTxO pp tx
         -- chkInsInUTxO txBods (dom utx)
-        runTestOnSignal $ chkInsInUTxO (parentTxBody : subTxBodies) utxo
-        -- chkCorIns (body ∷ txBods) (body .TxBody.corInputs )
-        runTestOnSignal $ chkCorIns (parentTxBody : subTxBodies) (parentTxBody ^. corInputsTxBodyL)
-        -- chkCorInsOuts (body ∷ txBods) (utx ∣ corInputs)
-        runTestOnSignal $
-          chkCorInsOuts
-            (parentTxBody : subTxBodies)
-            (UTxO $ unUTxO utxo `Map.restrictKeys` (parentTxBody ^. corInputsTxBodyL))
-        runTestOnSignal $ chkInsInUTxO (parentTxBody : subTxBodies) utxo
+        runTestOnSignal $ chkInsInUTxO (parentTxBody : subTxBodies) (Map.keysSet (unUTxO utxo))
         -- sameEls subTxs (map (λ t → t .Tx'.body' .TxBody.txid) subTxBodies)
         -- runTestOnSignal $
         --   failureUnless
@@ -508,24 +519,14 @@ ledgerTransition =
       where
         txIdsInTopLevel = tx ^.. subTxTxL . to strictMaybeToMaybe . _Just . folded . to txIdTx
         txIdsInBody = tx ^.. bodyTxL . swapsTxBodyL . folded
-    chkInsInUTxO :: [TxBody era] -> UTxO era -> Test (BabelUtxoPredFailure era)
+    chkInsInUTxO :: [TxBody era] -> Set (TxIn (EraCrypto era)) -> Test (BabelUtxoPredFailure era)
     chkInsInUTxO txBodies uins = failureUnless check CheckInsInUtxoFailure
       where
         check =
           all
             ( \txBody ->
                 ((txBody ^. inputsTxBodyL) `Set.union` (txBody ^. corInputsTxBodyL))
-                  `Set.isSubsetOf` Map.keysSet (unUTxO uins)
-            )
-            txBodies
-    chkReqBOs :: [TxBody era] -> TxBody era -> Test (BabelUtxoPredFailure era)
-    chkReqBOs txBodies topLevelTxBody = failureUnless check CheckRqObsFailure
-      where
-        check =
-          all
-            ( \txBody ->
-                (txBody ^. requireBatchObserversTxBodyL)
-                  `Set.isSubsetOf` (topLevelTxBody ^. requireBatchObserversTxBodyL)
+                  `Set.isSubsetOf` uins
             )
             txBodies
     -- all corInputs exist in the UTxO set
@@ -560,6 +561,15 @@ ledgerTransition =
           if a == b
             then bc
             else b : deleteFirst a bc
+
+singleInvalid :: AlonzoEraTx era => BatchData era -> [Tx era] -> Bool
+singleInvalid NormalTransaction [tx] = (tx ^. isValidTxL) /= IsValid True
+singleInvalid _ _ = False
+
+-- ∙ isBalanced ≡ true  → singleInvalid bd txs ≡ false  --2
+-- ∙ chkCorIns (body ∷ txBods) (body .TxBody.corInputs ) → singleInvalid bd txs ≡ false --6
+-- ∙ chkCorInsOuts (body ∷ txBods) (utx ∣ corInputs) → singleInvalid bd txs ≡ false  --7
+-- (isBalanced ≡ true && chkCorIns (body ∷ txBods) (body .TxBody.corInputs ) && chkCorInsOuts (body ∷ txBods) (utx ∣ corInputs)) || (singleInvalid bd txs ≡ false)
 
 -- sameEls : ForTopLevel → List TxId → Set
 -- sameEls subTxs lst with subTxs

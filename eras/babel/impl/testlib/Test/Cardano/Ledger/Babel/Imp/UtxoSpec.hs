@@ -36,7 +36,8 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Sequence.Strict as SSeq
 import qualified Data.Set as Set
 import Lens.Micro ((&), (.~), (^.))
-import Test.Cardano.Ledger.Babel.ImpTest
+import Test.Cardano.Ledger.Alonzo.ImpTest
+import Test.Cardano.Ledger.Babel.ImpTest ()
 import Test.Cardano.Ledger.Core.KeyPair (mkScriptAddr)
 import Test.Cardano.Ledger.Core.Rational ((%!))
 import Test.Cardano.Ledger.Core.Utils (txInAt)

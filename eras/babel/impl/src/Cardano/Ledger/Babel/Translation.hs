@@ -21,7 +21,7 @@ import Cardano.Ledger.Address (addrPtrNormalize)
 import Cardano.Ledger.Babel.Core hiding (Tx)
 import Cardano.Ledger.Babel.Era (BabelEra)
 import Cardano.Ledger.Babel.Genesis (BabelGenesis (..))
-import Cardano.Ledger.Babel.Tx ()
+import Cardano.Ledger.Babel.Tx (BabelEraTx (..))
 import Cardano.Ledger.Binary (DecoderError)
 import Cardano.Ledger.CertState (CommitteeState (..))
 import Cardano.Ledger.Conway.Governance (
@@ -113,6 +113,8 @@ instance Crypto c => TranslateEra (BabelEra c) Tx where
             .~ isValidTx
             & auxDataTxL
             .~ auxData
+            & subTxTxL
+            .~ SJust mempty
     pure $ Tx newTx
 
 --------------------------------------------------------------------------------

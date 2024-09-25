@@ -320,7 +320,7 @@ instance
   type Event (BabelSWAPS era) = BabelSwapsEvent era
 
   initialRules = []
-  transitionRules = [ledgerTransition @BabelSWAPS]
+  transitionRules = [swapsTransition @BabelSWAPS]
 
   renderAssertionViolation = renderDepositEqualsObligationViolation
 
@@ -328,10 +328,10 @@ instance
 
 -- =======================================
 
-{- CIP-0118#LEDGER-rule
+{- CIP-0118#SWAPS-rule
 
 Jump to CIP-0118#UTXOW-rule to continue... -}
-ledgerTransition ::
+swapsTransition ::
   forall (someLEDGER :: Type -> Type) era.
   ( ConwayEraTxBody era
   , ConwayEraGov era
@@ -357,7 +357,7 @@ ledgerTransition ::
   , BabelEraTx era
   ) =>
   TransitionRule (someLEDGER era)
-ledgerTransition = do
+swapsTransition = do
   TRC (BabelSwapsEnv slot _txIx pp account bobs batchData, LedgerState utxoState certState, tx) <-
     judgmentContext
 

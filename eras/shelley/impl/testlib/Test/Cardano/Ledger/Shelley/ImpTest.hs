@@ -21,7 +21,7 @@
 {-# LANGUAGE UndecidableSuperClasses #-}
 
 module Test.Cardano.Ledger.Shelley.ImpTest (
-  ImpTestM,
+  ImpTestM (..),
   SomeSTSEvent (..),
   runImpTestM,
   runImpTestM_,
@@ -31,7 +31,8 @@ module Test.Cardano.Ledger.Shelley.ImpTest (
   runImpTestGenM_,
   evalImpTestGenM,
   execImpTestGenM,
-  ImpTestState,
+  impRootTxInL,
+  ImpTestState (..),
   ImpTestEnv (..),
   ImpException (..),
   ShelleyEraImp (..),
@@ -41,6 +42,7 @@ module Test.Cardano.Ledger.Shelley.ImpTest (
   impWitsVKeyNeeded,
   modifyPrevPParams,
   passEpoch,
+  impLedgerEnv,
   passNEpochs,
   passTick,
   freshKeyHash,
@@ -461,8 +463,10 @@ initShelleyImpNES =
   where
     pp =
       emptyPParams
-        & ppMinFeeAL .~ Coin 44
-        & ppMinFeeBL .~ Coin 155_381
+        & ppMinFeeAL
+        .~ Coin 44
+        & ppMinFeeBL
+        .~ Coin 155_381
     epochState =
       EpochState
         { esAccountState =
@@ -485,8 +489,10 @@ initShelleyImpNES =
               }
         , esNonMyopic = def
         }
-        & prevPParamsEpochStateL .~ pp
-        & curPParamsEpochStateL .~ pp
+        & prevPParamsEpochStateL
+        .~ pp
+        & curPParamsEpochStateL
+        .~ pp
     utxo = mempty
 
 mkTxId :: Crypto c => Int -> TxId c
@@ -763,7 +769,9 @@ addNativeScriptTxWits tx = impAnn "addNativeScriptTxWits" $ do
       scriptsToAdd = scriptsRequired Map.\\ provided
   pure $
     tx
-      & witsTxL . scriptTxWitsL <>~ fmap fromNativeScript scriptsToAdd
+      & witsTxL
+      . scriptTxWitsL
+      <>~ fmap fromNativeScript scriptsToAdd
 
 -- | Adds @TxWits@ that will satisfy all of the required key witnesses
 updateAddrTxWits ::
@@ -799,8 +807,13 @@ updateAddrTxWits tx = impAnn "updateAddrTxWits" $ do
     pure $ makeBootstrapWitness (extractHash txBodyHash) signingKey attrs
   pure $
     tx
-      & witsTxL . addrTxWitsL <>~ extraAddrVKeyWits <> extraNativeScriptVKeyWits
-      & witsTxL . bootAddrTxWitsL <>~ Set.fromList extraBootAddrWits
+      & witsTxL
+      . addrTxWitsL
+      <>~ extraAddrVKeyWits
+      <> extraNativeScriptVKeyWits
+        & witsTxL
+        . bootAddrTxWitsL
+        <>~ Set.fromList extraBootAddrWits
 
 -- | This fixup step ensures that there are enough funds in the transaction.
 addRootTxIn ::
@@ -811,7 +824,9 @@ addRootTxIn tx = impAnn "addRootTxIn" $ do
   rootTxIn <- fst <$> lookupImpRootTxOut
   pure $
     tx
-      & bodyTxL . inputsTxBodyL %~ Set.insert rootTxIn
+      & bodyTxL
+      . inputsTxBodyL
+      %~ Set.insert rootTxIn
 
 impNativeScriptKeyPairs ::
   ShelleyEraImp era =>
@@ -867,12 +882,20 @@ fixupFees tx = impAnn "fixupFees" $ do
     txWithFee
       | change >= getMinCoinTxOut pp changeTxOut =
           txNoWits
-            & bodyTxL . outputsTxBodyL .~ (outsBeforeFee :|> changeTxOut)
-            & bodyTxL . feeTxBodyL .~ fee
+            & bodyTxL
+            . outputsTxBodyL
+            .~ (outsBeforeFee :|> changeTxOut)
+            & bodyTxL
+            . feeTxBodyL
+            .~ fee
       | otherwise =
           txNoWits
-            & bodyTxL . outputsTxBodyL .~ outsBeforeFee
-            & bodyTxL . feeTxBodyL .~ (fee <> change)
+            & bodyTxL
+            . outputsTxBodyL
+            .~ outsBeforeFee
+            & bodyTxL
+            . feeTxBodyL
+            .~ (fee <> change)
   pure txWithFee
 
 shelleyFixupTx ::
@@ -1142,7 +1165,11 @@ withImpStateModified f =
       (rootKeyHash, _) <- freshKeyPair
       let rootAddr = Addr Testnet (KeyHashObj rootKeyHash) StakeRefNull
           rootTxOut = mkBasicTxOut rootAddr $ inject rootCoin
-      impNESL . nesEsL . esLStateL . lsUTxOStateL . utxosUtxoL
+      impNESL
+        . nesEsL
+        . esLStateL
+        . lsUTxOStateL
+        . utxosUtxoL
         %= (<> UTxO (Map.singleton rootTxIn rootTxOut))
 
 -- | Creates a fresh @SafeHash@
@@ -1258,7 +1285,9 @@ sendValueTo addr amount = do
     submitTxAnn
       ("Giving " <> show amount <> " to " <> show addr)
       $ mkBasicTx mkBasicTxBody
-        & bodyTxL . outputsTxBodyL .~ SSeq.singleton (mkBasicTxOut addr amount)
+        & bodyTxL
+        . outputsTxBodyL
+        .~ SSeq.singleton (mkBasicTxOut addr amount)
   pure $ txInAt (0 :: Int) tx
 
 -- | Modify the current new epoch state with a function
@@ -1306,14 +1335,16 @@ registerRewardAccount = do
   let stakingCredential = KeyHashObj khDelegator
   submitTxAnn_ ("Register Reward Account: " <> T.unpack (credToText stakingCredential)) $
     mkBasicTx mkBasicTxBody
-      & bodyTxL . outputsTxBodyL
-        .~ SSeq.fromList
-          [ mkBasicTxOut
-              (mkAddr (kpSpending, kpDelegator))
-              (inject $ Coin 10_000_000)
-          ]
-      & bodyTxL . certsTxBodyL
-        .~ SSeq.fromList [RegTxCert @era stakingCredential]
+      & bodyTxL
+      . outputsTxBodyL
+      .~ SSeq.fromList
+        [ mkBasicTxOut
+            (mkAddr (kpSpending, kpDelegator))
+            (inject $ Coin 10_000_000)
+        ]
+      & bodyTxL
+      . certsTxBodyL
+      .~ SSeq.fromList [RegTxCert @era stakingCredential]
   networkId <- use (to impGlobals . to networkId)
   pure $ RewardAccount networkId stakingCredential
 
@@ -1349,7 +1380,9 @@ registerPool = do
         }
   submitTxAnn_ "Registering a new stake pool" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL . certsTxBodyL .~ SSeq.singleton (RegPoolTxCert poolParams)
+      & bodyTxL
+      . certsTxBodyL
+      .~ SSeq.singleton (RegPoolTxCert poolParams)
   pure khPool
 
 registerAndRetirePoolToMakeReward ::
@@ -1376,13 +1409,16 @@ registerAndRetirePoolToMakeReward stakingC = do
           }
   submitTxAnn_ "Registering a temporary stake pool" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL . certsTxBodyL .~ SSeq.singleton (RegPoolTxCert poolParams)
+      & bodyTxL
+      . certsTxBodyL
+      .~ SSeq.singleton (RegPoolTxCert poolParams)
   passEpoch
   currentEpochNo <- getsNES nesELL
   submitTxAnn_ "Retiring the temporary stake pool" $
     mkBasicTx mkBasicTxBody
-      & bodyTxL . certsTxBodyL
-        .~ SSeq.singleton (RetirePoolTxCert poolKH $ addEpochInterval currentEpochNo $ EpochInterval 2)
+      & bodyTxL
+      . certsTxBodyL
+      .~ SSeq.singleton (RetirePoolTxCert poolKH $ addEpochInterval currentEpochNo $ EpochInterval 2)
   passEpoch
 
 -- | Compose given function with the configured fixup
