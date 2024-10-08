@@ -26,6 +26,8 @@
 module Constrained.Spec.Generics (
   GenericsFn,
   IsNormalType,
+  Args,
+  Cases,
   fst_,
   snd_,
   pair_,

@@ -40,7 +40,6 @@ import Cardano.Ledger.Babel.Rules
 import Cardano.Ledger.Babel.Scripts
 import Cardano.Ledger.Babel.Tx
 import Cardano.Ledger.Babel.TxBody (BabelTxBody (BabelTxBody))
-import Cardano.Ledger.Babel.TxCert
 import Cardano.Ledger.Babel.TxInfo (BabelContextError)
 import Cardano.Ledger.BaseTypes (StrictMaybe (..))
 import Cardano.Ledger.Binary (Sized)
@@ -134,24 +133,6 @@ instance Crypto c => Arbitrary (BabelGenesis c) where
       <*> arbitrary
       <*> arbitrary
       <*> arbitrary
-
-instance Crypto c => Arbitrary (BabelDelegCert c) where
-  arbitrary =
-    oneof
-      [ BabelRegCert <$> arbitrary <*> arbitrary
-      , BabelUnRegCert <$> arbitrary <*> arbitrary
-      , BabelDelegCert <$> arbitrary <*> arbitrary
-      , BabelRegDelegCert <$> arbitrary <*> arbitrary <*> arbitrary
-      ]
-
-instance Crypto c => Arbitrary (BabelGovCert c) where
-  arbitrary =
-    oneof
-      [ BabelRegDRep <$> arbitrary <*> arbitrary <*> arbitrary
-      , BabelUnRegDRep <$> arbitrary <*> arbitrary
-      , BabelAuthCommitteeHotKey <$> arbitrary <*> arbitrary
-      , BabelResignCommitteeColdKey <$> arbitrary <*> arbitrary
-      ]
 
 instance
   ( EraTxOut era

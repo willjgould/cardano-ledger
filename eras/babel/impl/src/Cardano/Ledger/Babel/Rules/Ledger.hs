@@ -452,14 +452,11 @@ ledgerTransition =
               , tx
               )
           ) -> do
-        let subTxs = tx ^.. subTxTxL . to strictMaybeToMaybe . _Just . folded
-            subTxBodies = subTxs ^.. folded . bodyTxL
+        let subTxs = getSubTxs tx
+            subTxBodies = getSubTxBodies subTxs
             parentTxBody = tx ^. bodyTxL
             parentTxId = txIdTx tx
-            batchData =
-              if not (null subTxs)
-                then Batch parentTxId (IsValid (all (== IsValid True) ((tx : subTxs) ^.. folded . isValidTxL)))
-                else NormalTransaction
+            batchData = mkBatchData tx subTxs parentTxId
         {-   feesOK pp tx utxo   -}
         validate $ feesOK pp tx utxo
 
@@ -561,6 +558,18 @@ ledgerTransition =
           if a == b
             then bc
             else b : deleteFirst a bc
+
+getSubTxs :: BabelEraTx era => Tx era -> [Tx era]
+getSubTxs tx = tx ^.. subTxTxL . to strictMaybeToMaybe . _Just . folded
+
+getSubTxBodies :: (Foldable f, EraTx era) => f (Tx era) -> [TxBody era]
+getSubTxBodies subTxs = subTxs ^.. folded . bodyTxL
+
+mkBatchData :: AlonzoEraTx era => Tx era -> [Tx era] -> TxId (EraCrypto era) -> BatchData era
+mkBatchData tx subTxs parentTxId =
+  if not (null subTxs)
+    then Batch parentTxId (IsValid (all (== IsValid True) ((tx : subTxs) ^.. folded . isValidTxL)))
+    else NormalTransaction
 
 singleInvalid :: AlonzoEraTx era => BatchData era -> [Tx era] -> Bool
 singleInvalid NormalTransaction [tx] = (tx ^. isValidTxL) /= IsValid True

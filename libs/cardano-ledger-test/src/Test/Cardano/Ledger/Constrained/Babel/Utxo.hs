@@ -6,11 +6,11 @@
 
 -- | Specs necessary to generate, environment, state, and signal
 -- for the UTXO rule
-module Test.Cardano.Ledger.Constrained.Conway.Utxo where
+module Test.Cardano.Ledger.Constrained.Babel.Utxo where
 
 import Cardano.Ledger.Babbage.TxOut
+import Cardano.Ledger.Babel.PParams
 import Cardano.Ledger.BaseTypes
-import Cardano.Ledger.Conway.PParams
 import Cardano.Ledger.Mary.Value
 import Cardano.Ledger.Shelley.API.Types
 import Cardano.Ledger.UTxO
@@ -23,19 +23,23 @@ import Lens.Micro
 
 import Constrained
 
-import Cardano.Ledger.Conway (ConwayEra)
-import Cardano.Ledger.Conway.Core (EraTx (..), ppMaxCollateralInputsL)
+import Cardano.Ledger.Babel (BabelEra)
+import Cardano.Ledger.Babel.Core (EraTx (..), ppMaxCollateralInputsL)
+import Cardano.Ledger.Babel.Rules (BabelUtxoEnv (..))
 import Cardano.Ledger.Crypto (StandardCrypto)
-import Test.Cardano.Ledger.Constrained.Conway.Instances
-import Test.Cardano.Ledger.Constrained.Conway.PParams
+import Test.Cardano.Ledger.Constrained.Babel.Instances
+import Test.Cardano.Ledger.Constrained.Babel.PParams
+import Test.Cardano.Ledger.Constrained.Conway.Instances hiding (pProcDeposit_)
 
-utxoEnvSpec :: IsConwayUniv fn => Specification fn (UtxoEnv (ConwayEra StandardCrypto))
+utxoEnvSpec :: IsConwayUniv fn => Specification fn (BabelUtxoEnv (BabelEra StandardCrypto))
 utxoEnvSpec =
   constrained $ \utxoEnv ->
     match utxoEnv $
       \_ueSlot
        uePParams
-       _ueCertState ->
+       _ueCertState
+       _ueBatchObservers
+       _ueBatchData ->
           [ satisfies uePParams pparamsSpec
           , match uePParams $ \cpp ->
               match cpp $
@@ -78,8 +82,8 @@ utxoEnvSpec =
 
 utxoStateSpec ::
   IsConwayUniv fn =>
-  UtxoEnv (ConwayEra StandardCrypto) ->
-  Specification fn (UTxOState (ConwayEra StandardCrypto))
+  BabelUtxoEnv (BabelEra StandardCrypto) ->
+  Specification fn (UTxOState (BabelEra StandardCrypto))
 utxoStateSpec _env =
   constrained $ \utxoState ->
     match utxoState $
@@ -96,42 +100,46 @@ utxoStateSpec _env =
 
 utxoTxSpec ::
   IsConwayUniv fn =>
-  UtxoEnv (ConwayEra StandardCrypto) ->
-  UTxOState (ConwayEra StandardCrypto) ->
-  Specification fn (Tx (ConwayEra StandardCrypto))
+  BabelUtxoEnv (BabelEra StandardCrypto) ->
+  UTxOState (BabelEra StandardCrypto) ->
+  Specification fn (Tx (BabelEra StandardCrypto))
 utxoTxSpec env st =
   constrained $ \tx ->
-    match tx $ \bdy _wits isValid _auxData ->
+    match tx $ \bdy _wits isValid _auxData _swaps ->
       [ match isValid assert
       , match bdy $
-          \ctbSpendInputs
-           ctbCollateralInputs
-           _ctbReferenceInputs
-           ctbOutputs
-           ctbCollateralReturn
-           _ctbTotalCollateral
-           _ctbCerts
-           ctbWithdrawals
-           ctbTxfee
-           ctbVldt
-           _ctbReqSignerHashes
-           _ctbMint
-           _ctbScriptIntegrityHash
-           _ctbAdHash
-           ctbTxNetworkId
-           _ctbVotingProcedures
-           ctbProposalProcedures
-           _ctbCurrentTreasuryValue
-           ctbTreasuryDonation ->
-              [ assert $ ctbSpendInputs /=. lit mempty
-              , assert $ ctbSpendInputs `subset_` lit (Map.keysSet $ unUTxO $ utxosUtxo st)
-              , match ctbWithdrawals $ \withdrawalMap ->
+          \bbtbSpendInputs
+           bbtbCollateralInputs
+           _bbtbReferenceInputs
+           bbtbOutputs
+           bbtbCollateralReturn
+           _bbtbTotalCollateral
+           _bbtbCerts
+           bbtbWithdrawals
+           bbtbTxfee
+           bbtbVldt
+           _bbtbReqSignerHashes
+           _bbtbMint
+           _bbtbScriptIntegrityHash
+           _bbtbAdHash
+           bbtbTxNetworkId
+           _bbtbVotingProcedures
+           bbtbProposalProcedures
+           _bbtbCurrentTreasuryValue
+           bbtbTreasuryDonation
+           _bbtbSwaps
+           _bbtbBatchObs
+           _bbtbSpendOuts
+           _bbtbCorIns ->
+              [ assert $ bbtbSpendInputs /=. lit mempty
+              , assert $ bbtbSpendInputs `subset_` lit (Map.keysSet $ unUTxO $ utxosUtxo st)
+              , match bbtbWithdrawals $ \withdrawalMap ->
                   forAll' (dom_ withdrawalMap) $ \net _ ->
                     net ==. lit Testnet
               , -- TODO: we need to do this for collateral as well?
-                match ctbProposalProcedures $ \proposalsList ->
-                  match ctbOutputs $ \outputList ->
-                    [ (reify ctbSpendInputs)
+                match bbtbProposalProcedures $ \proposalsList ->
+                  match bbtbOutputs $ \outputList ->
+                    [ (reify bbtbSpendInputs)
                         ( \actualInputs ->
                             fold
                               [ c | i <- Set.toList actualInputs, BabbageTxOut _ (MaryValue c _) _ _ <- maybeToList . txinLookup i . utxosUtxo $ st
@@ -146,23 +154,24 @@ utxoTxSpec env st =
                                   foldMap_
                                     pProcDeposit_
                                     proposalsList
-                             in outputSum + depositSum + ctbTxfee + ctbTreasuryDonation ==. totalValueConsumed
+                             in outputSum + depositSum + bbtbTxfee + bbtbTreasuryDonation ==. totalValueConsumed
                           ]
                     , forAll outputList (flip onSized correctAddrAndWFCoin)
                     ]
-              , match ctbVldt $ \before after ->
-                  [ onJust' before (<=. lit (ueSlot env))
-                  , onJust' after (lit (ueSlot env) <.)
+              , match bbtbVldt $ \before after ->
+                  [ onJust' before (<=. lit (bueSlot env))
+                  , onJust' after (lit (bueSlot env) <.)
                   ]
-              , onJust' ctbTxNetworkId (==. lit Testnet)
-              , onJust' ctbCollateralReturn $ flip onSized correctAddrAndWFCoin
-              , assert $ size_ ctbCollateralInputs <=. lit (fromIntegral $ uePParams env ^. ppMaxCollateralInputsL)
+              , onJust' bbtbTxNetworkId (==. lit Testnet)
+              , onJust' bbtbCollateralReturn $ flip onSized correctAddrAndWFCoin
+              , assert $
+                  size_ bbtbCollateralInputs <=. lit (fromIntegral $ buePParams env ^. ppMaxCollateralInputsL)
               ]
       ]
 
 correctAddrAndWFCoin ::
   IsConwayUniv fn =>
-  Term fn (TxOut (ConwayEra StandardCrypto)) ->
+  Term fn (TxOut (BabelEra StandardCrypto)) ->
   Pred fn
 correctAddrAndWFCoin txOut =
   match txOut $ \addr v _ _ ->

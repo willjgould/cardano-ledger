@@ -64,6 +64,16 @@ library
         Test.Cardano.Ledger.Constrained.Conway.PParams
         Test.Cardano.Ledger.Constrained.Conway.Gov
         Test.Cardano.Ledger.Constrained.Conway.Utxo
+        Test.Cardano.Ledger.Constrained.Babel
+        Test.Cardano.Ledger.Constrained.Babel.Instances
+        Test.Cardano.Ledger.Constrained.Babel.Cert
+        Test.Cardano.Ledger.Constrained.Babel.Gov
+        Test.Cardano.Ledger.Constrained.Babel.GovCert
+        Test.Cardano.Ledger.Constrained.Babel.Ledger
+        Test.Cardano.Ledger.Constrained.Babel.Deleg
+        Test.Cardano.Ledger.Constrained.Babel.Pool
+        Test.Cardano.Ledger.Constrained.Babel.PParams
+        Test.Cardano.Ledger.Constrained.Babel.Utxo
         Test.Cardano.Ledger.Examples.BabbageFeatures
         Test.Cardano.Ledger.Examples.AlonzoValidTxUTXOW
         Test.Cardano.Ledger.Examples.AlonzoInvalidTxUTXOW
@@ -121,6 +131,7 @@ library
         cardano-ledger-byron,
         cardano-ledger-binary:{cardano-ledger-binary, testlib},
         cardano-ledger-conway:{cardano-ledger-conway, testlib},
+        cardano-ledger-babel:{cardano-ledger-babel},
         cardano-ledger-core:{cardano-ledger-core, testlib},
         cardano-ledger-mary,
         cardano-ledger-shelley:{cardano-ledger-shelley, testlib},

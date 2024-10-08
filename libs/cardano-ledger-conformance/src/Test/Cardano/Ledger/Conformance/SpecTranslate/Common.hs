@@ -18,12 +18,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Test.Cardano.Ledger.Conformance.SpecTranslate.Conway (
-  SpecTranslate (..),
-  SpecTranslationError,
-  OpaqueErrorString (..),
-  GovProceduresSpecTransCtx,
-) where
+module Test.Cardano.Ledger.Conformance.SpecTranslate.Common where
 
 import Cardano.Crypto.DSIGN (DSIGNAlgorithm (..), SignedDSIGN (..))
 import Cardano.Crypto.Hash (Hash, hashToBytes)
@@ -31,7 +26,6 @@ import Cardano.Ledger.Address (Addr (..), RewardAccount (..), serialiseAddr)
 import Cardano.Ledger.Alonzo (AlonzoTxAuxData)
 import Cardano.Ledger.Alonzo.PParams (OrdExUnits (OrdExUnits))
 import Cardano.Ledger.Alonzo.Scripts (AlonzoPlutusPurpose (..))
-import Cardano.Ledger.Alonzo.Tx (AlonzoTx (..))
 import Cardano.Ledger.Alonzo.TxWits (AlonzoTxWits (..), Redeemers (..), TxDats (..))
 import Cardano.Ledger.Babbage.TxOut (BabbageTxOut (..))
 import Cardano.Ledger.BaseTypes (
@@ -39,7 +33,6 @@ import Cardano.Ledger.BaseTypes (
   BoundedRational (..),
   EpochInterval (..),
   EpochNo (..),
-  Inject,
   Network,
   ProtVer (..),
   SlotNo (..),
@@ -52,42 +45,7 @@ import Cardano.Ledger.BaseTypes (
 import Cardano.Ledger.Binary (Sized (..))
 import Cardano.Ledger.Coin (Coin (..))
 import Cardano.Ledger.Conway.Core
-import Cardano.Ledger.Conway.Governance (
-  Committee (Committee),
-  Constitution (..),
-  EnactState (..),
-  GovAction (..),
-  GovActionId (GovActionId),
-  GovActionIx (..),
-  GovActionState (..),
-  GovProcedures (..),
-  GovPurposeId (GovPurposeId),
-  GovRelation (..),
-  ProposalProcedure (..),
-  Proposals,
-  Vote (..),
-  Voter (..),
-  VotingProcedure (..),
-  VotingProcedures (..),
-  foldrVotingProcedures,
-  gasAction,
-  gasReturnAddr,
-  pPropsL,
- )
-import Cardano.Ledger.Conway.PParams (ConwayPParams (..), THKD (..))
-import Cardano.Ledger.Conway.Rules (
-  ConwayGovPredFailure,
-  ConwayUtxoPredFailure,
-  GovEnv (..),
- )
-import Cardano.Ledger.Conway.Scripts (ConwayPlutusPurpose (..))
-import Cardano.Ledger.Conway.TxCert (
-  ConwayDelegCert (..),
-  ConwayGovCert (..),
-  ConwayTxCert (..),
-  getStakePoolDelegatee,
-  getVoteDelegatee,
- )
+import Cardano.Ledger.Conway.PParams (THKD (..))
 import Cardano.Ledger.Credential (Credential (..))
 import Cardano.Ledger.Crypto (Crypto (..))
 import Cardano.Ledger.DRep (DRep (..))
@@ -104,10 +62,8 @@ import Cardano.Ledger.Tools (byteStringToNum)
 import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 import Cardano.Ledger.UTxO (UTxO (..))
 import Cardano.Ledger.Val (Val (..))
-import Constrained (HasSimpleRep, HasSpec)
 import Control.DeepSeq (NFData)
 import Control.Monad.Except (MonadError (..))
-import Control.State.Transition.Extended (STS (..))
 import Data.Bifunctor (Bifunctor (..))
 import Data.Bitraversable (bimapM)
 import Data.Data (Typeable)
@@ -121,24 +77,19 @@ import Data.Ratio (denominator, numerator)
 import Data.Sequence.Strict (StrictSeq)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Traversable (forM)
 import Data.Word (Word32, Word64)
 import GHC.Generics (Generic)
 import Lens.Micro
-import Lens.Micro.Extras (view)
 import qualified Lib as Agda
 import Test.Cardano.Ledger.Conformance (
   SpecTransM,
   SpecTranslate (..),
-  SpecTranslationError,
-  askTransCtx,
  )
-import Test.Cardano.Ledger.Constrained.Conway.Instances (IsConwayUniv)
 import Test.Cardano.Ledger.Conway.TreeDiff (ToExpr (..))
 
 -- | OpaqueErrorString behaves like unit in comparisons, but contains an
 -- error string that can be displayed.
-newtype OpaqueErrorString = OpaqueErrorString String -- TODO WG make sure there's just one of these
+newtype OpaqueErrorString = OpaqueErrorString String
   deriving (Generic)
 
 instance Eq OpaqueErrorString where
@@ -279,40 +230,6 @@ instance
 
   toSpecRep = toSpecRep . unTHKD
 
-instance SpecTranslate ctx (ConwayPParams Identity era) where
-  type SpecRep (ConwayPParams Identity era) = Agda.PParams
-
-  toSpecRep x =
-    Agda.MkPParams
-      <$> toSpecRep (cppMinFeeA x)
-      <*> toSpecRep (cppMinFeeB x)
-      <*> pure (toInteger . unTHKD $ cppMaxBBSize x)
-      <*> pure (toInteger . unTHKD $ cppMaxTxSize x)
-      <*> pure (toInteger . unTHKD $ cppMaxBHSize x)
-      <*> pure (toInteger . unTHKD $ cppMaxValSize x)
-      <*> pure 0 -- minUTxOValue has been deprecated and is not supported in Conway
-      <*> toSpecRep (cppPoolDeposit x)
-      <*> toSpecRep (cppEMax x)
-      <*> toSpecRep (toInteger . unTHKD $ cppNOpt x)
-      <*> toSpecRep (cppProtocolVersion x)
-      <*> toSpecRep
-        ( VotingThresholds
-            (unTHKD $ cppDRepVotingThresholds x)
-            (unTHKD $ cppPoolVotingThresholds x)
-        )
-      <*> toSpecRep (cppGovActionLifetime x)
-      <*> toSpecRep (cppGovActionDeposit x)
-      <*> toSpecRep (cppDRepDeposit x)
-      <*> toSpecRep (cppDRepActivity x)
-      <*> pure (toInteger . unTHKD $ cppCommitteeMinSize x)
-      <*> pure (toInteger . unEpochInterval . unTHKD $ cppCommitteeMaxTermLength x)
-      <*> toSpecRep (cppCostModels x)
-      <*> toSpecRep (cppPrices x)
-      <*> toSpecRep (cppMaxTxExUnits x)
-      <*> toSpecRep (cppMaxBlockExUnits x)
-      <*> toSpecRep (cppCoinsPerUTxOByte x)
-      <*> pure (toInteger . unTHKD $ cppMaxCollateralInputs x)
-
 instance
   ( SpecTranslate ctx (PParamsHKD Identity era)
   , Eq (SpecRep (PParamsHKD Identity era))
@@ -424,17 +341,6 @@ instance SpecTranslate ctx (AlonzoPlutusPurpose AsIx era) where
     AlonzoCertifying (AsIx i) -> pure (Agda.Cert, toInteger i)
     AlonzoRewarding (AsIx i) -> pure (Agda.Rewrd, toInteger i)
 
-instance SpecTranslate ctx (ConwayPlutusPurpose AsIx era) where
-  type SpecRep (ConwayPlutusPurpose AsIx era) = Agda.RdmrPtr
-
-  toSpecRep = \case
-    ConwaySpending (AsIx i) -> pure (Agda.Spend, toInteger i)
-    ConwayMinting (AsIx i) -> pure (Agda.Mint, toInteger i)
-    ConwayCertifying (AsIx i) -> pure (Agda.Cert, toInteger i)
-    ConwayRewarding (AsIx i) -> pure (Agda.Rewrd, toInteger i)
-    ConwayVoting (AsIx i) -> pure (Agda.Vote, toInteger i)
-    ConwayProposing (AsIx i) -> pure (Agda.Propose, toInteger i)
-
 instance
   ( SpecTranslate ctx a
   , SpecTranslate ctx b
@@ -539,53 +445,6 @@ instance SpecTranslate ctx (Anchor c) where
   type SpecRep (Anchor c) = Agda.Anchor
   toSpecRep _ = pure ()
 
-instance SpecTranslate ctx (ConwayTxCert era) where
-  type SpecRep (ConwayTxCert era) = Agda.TxCert
-
-  toSpecRep (ConwayTxCertDeleg (ConwayRegCert _ _)) = throwError "RegCert not supported"
-  toSpecRep (ConwayTxCertDeleg (ConwayUnRegCert _ _)) = throwError "UnRegCert not supported"
-  toSpecRep (ConwayTxCertDeleg (ConwayDelegCert c d)) =
-    Agda.Delegate
-      <$> toSpecRep c
-      <*> toSpecRep (getVoteDelegatee d)
-      <*> toSpecRep (KeyHashObj <$> getStakePoolDelegatee d)
-      <*> pure 0
-  toSpecRep (ConwayTxCertDeleg (ConwayRegDelegCert s d c)) =
-    Agda.Delegate
-      <$> toSpecRep s
-      <*> toSpecRep (getVoteDelegatee d)
-      <*> toSpecRep (KeyHashObj <$> getStakePoolDelegatee d)
-      <*> toSpecRep c
-  toSpecRep (ConwayTxCertPool (RegPool p@PoolParams {ppId})) =
-    Agda.RegPool
-      <$> toSpecRep (KeyHashObj ppId)
-      <*> toSpecRep p
-  toSpecRep (ConwayTxCertPool (RetirePool kh e)) =
-    Agda.RetirePool
-      <$> toSpecRep (KeyHashObj kh)
-      <*> toSpecRep e
-  toSpecRep (ConwayTxCertGov (ConwayRegDRep c d _)) =
-    Agda.RegDRep
-      <$> toSpecRep c
-      <*> toSpecRep d
-      <*> pure () -- TODO Are the anchors supposed to be optional?
-  toSpecRep (ConwayTxCertGov (ConwayUnRegDRep c _)) =
-    Agda.DeRegDRep
-      <$> toSpecRep c
-  toSpecRep (ConwayTxCertGov (ConwayUpdateDRep c _)) =
-    Agda.RegDRep
-      <$> toSpecRep c
-      <*> pure 0
-      <*> pure () -- TODO Are the anchors supposed to be optional?
-  toSpecRep (ConwayTxCertGov (ConwayAuthCommitteeHotKey c h)) =
-    Agda.CCRegHot
-      <$> toSpecRep c
-      <*> toSpecRep (SJust h)
-  toSpecRep (ConwayTxCertGov (ConwayResignCommitteeColdKey c _)) =
-    Agda.CCRegHot
-      <$> toSpecRep c
-      <*> toSpecRep (SNothing @(Credential _ _))
-
 deriving instance SpecTranslate ctx (TxId era)
 
 toAgdaTxBody ::
@@ -611,192 +470,12 @@ toAgdaTxBody tx =
     <*> toSpecRep (tx ^. bodyTxL . scriptIntegrityHashTxBodyL)
     <*> toSpecRep (tx ^. bodyTxL . certsTxBodyL)
 
-instance
-  ( SpecTranslate ctx (TxWits era)
-  , SpecTranslate ctx (TxAuxData era)
-  , SpecTranslate ctx (TxOut era)
-  , SpecTranslate ctx (TxCert era)
-  , SpecRep (TxWits era) ~ Agda.TxWitnesses
-  , SpecRep (TxAuxData era) ~ Agda.AuxiliaryData
-  , SpecRep (TxOut era) ~ Agda.TxOut
-  , SpecRep (TxCert era) ~ Agda.TxCert
-  , Tx era ~ AlonzoTx era
-  , EraTx era
-  , AlonzoEraTxBody era
-  ) =>
-  SpecTranslate ctx (AlonzoTx era)
-  where
-  type SpecRep (AlonzoTx era) = Agda.Tx
-
-  toSpecRep tx =
-    Agda.MkTx
-      <$> toAgdaTxBody @era tx
-      <*> toSpecRep (wits tx)
-      <*> toSpecRep (auxiliaryData tx)
-
-instance
-  ( ToExpr (Value era)
-  , ToExpr (TxOut era)
-  , ToExpr (PredicateFailure (EraRule "UTXOS" era))
-  ) =>
-  SpecTranslate ctx (ConwayUtxoPredFailure era)
-  where
-  type SpecRep (ConwayUtxoPredFailure era) = OpaqueErrorString
-
-  toSpecRep e = pure . OpaqueErrorString . show $ toExpr e
-
-instance
-  ( EraPParams era
-  , ToExpr (PParamsHKD StrictMaybe era)
-  ) =>
-  SpecTranslate ctx (ConwayGovPredFailure era)
-  where
-  type SpecRep (ConwayGovPredFailure era) = OpaqueErrorString
-
-  toSpecRep e = pure . OpaqueErrorString . show $ toExpr e
-
-instance SpecTranslate ctx (GovPurposeId r c) where
-  type SpecRep (GovPurposeId r c) = (Agda.TxId, Integer)
-
-  toSpecRep (GovPurposeId gaId) = toSpecRep gaId
-
 instance SpecTranslate ctx UnitInterval where
   type SpecRep UnitInterval = (Integer, Integer)
 
   toSpecRep x = pure (numerator r, denominator r)
     where
       r = unboundRational x
-
-instance SpecTranslate ctx (Committee era) where
-  type SpecRep (Committee era) = ([(Agda.Credential, Agda.Epoch)], Agda.Rational)
-
-  toSpecRep (Committee members threshold) = toSpecRep (members, threshold)
-
-instance SpecTranslate ctx (Constitution era) where
-  type SpecRep (Constitution era) = (Agda.DataHash, Maybe Agda.ScriptHash)
-
-  toSpecRep (Constitution anchor policy) = toSpecRep (anchor, policy)
-
-instance
-  ( EraPParams era
-  , SpecTranslate ctx (PParamsHKD Identity era)
-  , SpecRep (PParamsHKD Identity era) ~ Agda.PParams
-  ) =>
-  SpecTranslate ctx (EnactState era)
-  where
-  type SpecRep (EnactState era) = Agda.EnactState
-
-  toSpecRep EnactState {..} =
-    Agda.MkEnactState
-      <$> transHashProtected ensCommittee grCommittee
-      <*> transHashProtected ensConstitution grConstitution
-      <*> transHashProtected (ensCurPParams ^. ppProtocolVersionL) grHardFork
-      <*> transHashProtected ensCurPParams grPParamUpdate
-      <*> transWithdrawals ensWithdrawals
-    where
-      GovRelation {..} = ensPrevGovActionIds
-      transWithdrawals ws = forM (Map.toList ws) $
-        \(cred, Coin amount) -> do
-          agdaCred <- toSpecRep cred
-          pure (((), agdaCred), amount)
-      transHashProtected x h = do
-        committee <- toSpecRep x
-        agdaLastId <- case h of
-          SJust lastId -> toSpecRep lastId
-          SNothing -> pure (0, 0)
-        pure (committee, agdaLastId)
-
-instance
-  ( SpecTranslate ctx (PParamsHKD Identity era)
-  , Inject ctx (EnactState era)
-  , EraPParams era
-  , SpecRep (PParamsHKD Identity era) ~ Agda.PParams
-  ) =>
-  SpecTranslate ctx (GovEnv era)
-  where
-  type SpecRep (GovEnv era) = Agda.GovEnv
-  type SpecTransContext (GovEnv era) = EnactState era
-
-  toSpecRep GovEnv {..} = do
-    enactState <- askTransCtx @(GovEnv era)
-    Agda.MkGovEnv
-      <$> toSpecRep geTxId
-      <*> toSpecRep geEpoch
-      <*> toSpecRep gePParams
-      <*> toSpecRep gePPolicy
-      <*> toSpecRep enactState
-
-instance SpecTranslate ctx (Voter era) where
-  type SpecRep (Voter era) = Agda.Voter
-
-  toSpecRep (CommitteeVoter c) = (Agda.CC,) <$> toSpecRep c
-  toSpecRep (DRepVoter c) = (Agda.DRep,) <$> toSpecRep c
-  toSpecRep (StakePoolVoter kh) = (Agda.SPO,) <$> toSpecRep (KeyHashObj kh)
-
-instance SpecTranslate ctx Vote where
-  type SpecRep Vote = Agda.Vote
-
-  toSpecRep VoteYes = pure Agda.VoteYes
-  toSpecRep VoteNo = pure Agda.VoteNo
-  toSpecRep Abstain = pure Agda.VoteAbstain
-
-instance SpecTranslate ctx (VotingProcedures era) where
-  type SpecRep (VotingProcedures era) = [Agda.GovSignal]
-
-  toSpecRep = foldrVotingProcedures go (pure [])
-    where
-      go ::
-        Voter (EraCrypto era) ->
-        GovActionId (EraCrypto era) ->
-        VotingProcedure era ->
-        SpecTransM ctx [Agda.GovSignal] ->
-        SpecTransM ctx [Agda.GovSignal]
-      go voter gaId votingProcedure m =
-        (:)
-          <$> fmap
-            Agda.GovSignalVote
-            ( Agda.MkGovVote
-                <$> toSpecRep gaId
-                <*> toSpecRep voter
-                <*> toSpecRep (vProcVote votingProcedure)
-                <*> toSpecRep (vProcAnchor votingProcedure)
-            )
-          <*> m
-
-instance SpecTranslate ctx (GovAction era) where
-  type SpecRep (GovAction era) = Agda.GovAction
-
-  toSpecRep ParameterChange {} = pure $ Agda.ChangePParams ()
-  toSpecRep (HardForkInitiation _ pv) = Agda.TriggerHF <$> toSpecRep pv
-  toSpecRep (TreasuryWithdrawals withdrawals _) =
-    Agda.TreasuryWdrl
-      <$> toSpecRep withdrawals
-  toSpecRep (NoConfidence _) = pure Agda.NoConfidence
-  toSpecRep (UpdateCommittee _ remove add threshold) =
-    Agda.NewCommittee
-      <$> toSpecRep add
-      <*> toSpecRep remove
-      <*> toSpecRep threshold
-  toSpecRep (NewConstitution _ (Constitution anchor policy)) =
-    Agda.NewConstitution
-      <$> toSpecRep anchor
-      <*> toSpecRep policy
-  toSpecRep InfoAction = pure Agda.Info
-
-toAgdaProposalProcedure ::
-  GovActionId (EraCrypto era) ->
-  StrictMaybe (ScriptHash (EraCrypto era)) ->
-  ProposalProcedure era ->
-  SpecTransM ctx Agda.GovSignal
-toAgdaProposalProcedure gaId policy ProposalProcedure {..} =
-  fmap Agda.GovSignalProposal $
-    Agda.MkGovProposal
-      <$> toSpecRep pProcGovAction
-      <*> toSpecRep gaId
-      <*> toSpecRep policy
-      <*> toSpecRep pProcDeposit
-      <*> toSpecRep pProcReturnAddr
-      <*> toSpecRep pProcAnchor
 
 instance SpecTranslate ctx a => SpecTranslate ctx (OSet a) where
   type SpecRep (OSet a) = [SpecRep a]
@@ -817,65 +496,3 @@ instance
 
   toSpecRep = traverse (bimapM toSpecRep toSpecRep) . assocList
   specToTestRep = fmap (bimap (specToTestRep @ctx @k) (specToTestRep @ctx @v))
-
-data GovProceduresSpecTransCtx c
-  = GovProceduresSpecTransCtx
-      (GovActionId c)
-      (StrictMaybe (ScriptHash c))
-  deriving (Eq, Show, Generic)
-
-instance HasSimpleRep (GovProceduresSpecTransCtx c)
-
-instance (IsConwayUniv fn, Crypto c) => HasSpec fn (GovProceduresSpecTransCtx c)
-
-instance
-  Inject ctx (GovProceduresSpecTransCtx (EraCrypto era)) =>
-  SpecTranslate ctx (GovProcedures era)
-  where
-  type SpecRep (GovProcedures era) = [Agda.GovSignal]
-  type SpecTransContext (GovProcedures era) = GovProceduresSpecTransCtx (EraCrypto era)
-
-  toSpecRep GovProcedures {..} = do
-    GovProceduresSpecTransCtx gaId policy <- askTransCtx @(GovProcedures era)
-    (++)
-      <$> toSpecRep gpVotingProcedures
-      <*> traverse
-        (toAgdaProposalProcedure gaId policy)
-        (toList gpProposalProcedures)
-
-instance SpecTranslate ctx (GovActionState era) where
-  type SpecRep (GovActionState era) = Agda.GovActionState
-
-  toSpecRep gas@GovActionState {..} =
-    Agda.MkGovActionState
-      <$> agdaVoteMap
-      <*> toSpecRep (gasReturnAddr gas)
-      <*> toSpecRep gasExpiresAfter
-      <*> toSpecRep (gasAction gas)
-      <*> toSpecRep gasId
-    where
-      agdaVoteMap = do
-        drepVotes <- toSpecRep gasDRepVotes
-        ccVotes <- toSpecRep gasCommitteeVotes
-        spoVotes <- toSpecRep gasStakePoolVotes
-        pure $
-          mconcat
-            [ first (Agda.DRep,) <$> drepVotes
-            , first (Agda.CC,) <$> ccVotes
-            , first (\h -> (Agda.SPO, Agda.KeyHashObj h)) <$> spoVotes
-            ]
-
-instance SpecTranslate ctx GovActionIx where
-  type SpecRep GovActionIx = Integer
-
-  toSpecRep = pure . fromIntegral . unGovActionIx
-
-instance SpecTranslate ctx (GovActionId c) where
-  type SpecRep (GovActionId c) = Agda.GovActionID
-
-  toSpecRep (GovActionId txId gaIx) = toSpecRep (txId, gaIx)
-
-instance SpecTranslate ctx (Proposals era) where
-  type SpecRep (Proposals era) = Agda.GovState
-
-  toSpecRep = toSpecRep . view pPropsL

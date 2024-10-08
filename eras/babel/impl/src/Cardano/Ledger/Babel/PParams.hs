@@ -22,29 +22,6 @@
 
 -- | This module contains the type of protocol parameters and EraPParams instance
 module Cardano.Ledger.Babel.PParams (
-  ppPoolVotingThresholdsL,
-  ppDRepVotingThresholdsL,
-  ppCommitteeMinSizeL,
-  ppCommitteeMaxTermLengthL,
-  ppGovActionLifetimeL,
-  ppGovActionDepositL,
-  ppDRepDepositL,
-  ppDRepActivityL,
-  ppuPoolVotingThresholdsL,
-  ppuDRepVotingThresholdsL,
-  ppuCommitteeMinSizeL,
-  ppuCommitteeMaxTermLengthL,
-  ppuGovActionLifetimeL,
-  ppuGovActionDepositL,
-  ppuDRepDepositL,
-  ppuDRepActivityL,
-  PoolVotingThresholds (..),
-  DRepVotingThresholds (..),
-  dvtPPNetworkGroupL,
-  dvtPPGovGroupL,
-  dvtPPTechnicalGroupL,
-  dvtPPEconomicGroupL,
-  dvtUpdateToConstitutionL,
   THKD (..),
 )
 where
@@ -53,6 +30,7 @@ import Cardano.Ledger.Alonzo.PParams (AlonzoEraPParams (..), OrdExUnits (..))
 import Cardano.Ledger.Alonzo.Scripts (
   ExUnits (..),
  )
+import Cardano.Ledger.Babbage.Core (BabbageEraPParams (..))
 import Cardano.Ledger.Babel.Era (BabelEra)
 import Cardano.Ledger.BaseTypes (
   EpochInterval (..),
@@ -60,7 +38,7 @@ import Cardano.Ledger.BaseTypes (
  )
 import Cardano.Ledger.CertState
 import Cardano.Ledger.Coin (Coin (..))
-import Cardano.Ledger.Conway.Core
+import Cardano.Ledger.Conway.Core (ppuCollateralPercentageL, ppuMaxValSizeL)
 import Cardano.Ledger.Conway.Governance
 import Cardano.Ledger.Conway.PParams (
   ConwayEraPParams (..),
@@ -72,6 +50,10 @@ import Cardano.Ledger.Conway.PParams (
   conwayPParamsPairs,
   emptyConwayPParams,
   emptyConwayPParamsUpdate,
+  ppuCommitteeMaxTermLengthL,
+  ppuDRepDepositL,
+  ppuGovActionDepositL,
+  ppuGovActionLifetimeL,
  )
 import Cardano.Ledger.Core
 import Cardano.Ledger.Crypto

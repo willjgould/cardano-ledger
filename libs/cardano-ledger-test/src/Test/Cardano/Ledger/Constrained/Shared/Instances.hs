@@ -21,18 +21,17 @@
 -- RecordWildCards cause name shadowing warnings in ghc-8.10.
 #if __GLASGOW_HASKELL__ < 900
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
 #endif
 
 -- | This module provides the necessary instances of `HasSpec`
 -- and `HasSimpleRep` to write specs for the environments,
 -- states, and signals in the conway STS rules.
-module Test.Cardano.Ledger.Constrained.Conway.Instances (
+module Test.Cardano.Ledger.Constrained.Shared.Instances (
   ConwayFn,
   StringFn,
-  DRepPulserTypes,
-  GAS,
   ProposalTree,
-  ProposalsType,
   onJust',
   onSized,
   cKeyHashObj,
@@ -1058,15 +1057,14 @@ gasProposalProcedure_ ::
   Term fn (ProposalProcedure (ConwayEra StandardCrypto))
 gasProposalProcedure_ = sel @4
 
-type GAS era = GovActionState era
-type ProposalTree (era :: Type -> Type) =
-  (StrictMaybe (GovActionId StandardCrypto), [Tree (GAS (era StandardCrypto))])
-type ProposalsType (era :: Type -> Type) =
-  '[ ProposalTree era -- PParamUpdate
-   , ProposalTree era -- HardFork
-   , ProposalTree era -- Committee
-   , ProposalTree era -- Constitution
-   , [GAS (era StandardCrypto)] -- Everything else (TreasuryWithdrawals, Info)
+type GAS = GovActionState (ConwayEra StandardCrypto)
+type ProposalTree = (StrictMaybe (GovActionId StandardCrypto), [Tree GAS])
+type ProposalsType =
+  '[ ProposalTree -- PParamUpdate
+   , ProposalTree -- HardFork
+   , ProposalTree -- Committee
+   , ProposalTree -- Constitution
+   , [GAS] -- Everything else (TreasuryWithdrawals, Info)
    -- TODO - in order to improve the distribution of orders in the OMap
    -- one could try doing something like this as well to materialize the order:
    -- , TotalOrder (GovActionId StandardCrypto)
@@ -1075,11 +1073,9 @@ type ProposalsType (era :: Type -> Type) =
    -- this right now.
    ]
 instance HasSimpleRep (Proposals (ConwayEra StandardCrypto)) where
-  type
-    SimpleRep (Proposals (ConwayEra StandardCrypto)) =
-      SOP '["Proposals" ::: ProposalsType ConwayEra]
+  type SimpleRep (Proposals (ConwayEra StandardCrypto)) = SOP '["Proposals" ::: ProposalsType]
   toSimpleRep props =
-    inject @"Proposals" @'["Proposals" ::: ProposalsType ConwayEra]
+    inject @"Proposals" @'["Proposals" ::: ProposalsType]
       (buildProposalTree $ coerce grPParamUpdate)
       (buildProposalTree $ coerce grHardFork)
       (buildProposalTree $ coerce grCommittee)
@@ -1098,11 +1094,10 @@ instance HasSimpleRep (Proposals (ConwayEra StandardCrypto)) where
           , coerce grConstitution
           ]
 
-      buildProposalTree :: TreeMaybe (GovActionId StandardCrypto) -> ProposalTree ConwayEra
+      buildProposalTree :: TreeMaybe (GovActionId StandardCrypto) -> ProposalTree
       buildProposalTree (TreeMaybe (Node mId cs)) = (mId, map buildTree cs)
 
-      buildTree ::
-        Tree (StrictMaybe (GovActionId StandardCrypto)) -> Tree (GAS (ConwayEra StandardCrypto))
+      buildTree :: Tree (StrictMaybe (GovActionId StandardCrypto)) -> Tree GAS
       buildTree (Node (SJust gid) cs) | Just gas <- Map.lookup gid idMap = Node gas (map buildTree cs)
       buildTree _ =
         error "toSimpleRep @Proposals: toGovRelationTree returned trees with Nothing nodes below the root"
@@ -1111,7 +1106,7 @@ instance HasSimpleRep (Proposals (ConwayEra StandardCrypto)) where
       keys (TreeMaybe t) = foldMap (strictMaybe mempty Set.singleton) t
 
   fromSimpleRep rep =
-    algebra @'["Proposals" ::: ProposalsType ConwayEra]
+    algebra @'["Proposals" ::: ProposalsType]
       rep
       $ \(rPPUp, ppupTree) (rHF, hfTree) (rCom, comTree) (rCon, conTree) others ->
         let root = GovRelation (coerce rPPUp) (coerce rHF) (coerce rCom) (coerce rCon)
@@ -1220,7 +1215,7 @@ instance IsConwayUniv fn => HasSpec fn (DRepPulsingState (ConwayEra StandardCryp
 instance HasSimpleRep (PulsingSnapshot (ConwayEra StandardCrypto))
 instance IsConwayUniv fn => HasSpec fn (PulsingSnapshot (ConwayEra StandardCrypto))
 
-type DRepPulserTypes era =
+type DRepPulserTypes =
   '[ Int
    , UMap StandardCrypto
    , Int
@@ -1229,9 +1224,9 @@ type DRepPulserTypes era =
    , Map (DRep StandardCrypto) (CompactForm Coin)
    , Map (Credential 'DRepRole StandardCrypto) (DRepState StandardCrypto)
    , EpochNo
-   , CommitteeState (era StandardCrypto)
-   , EnactState (era StandardCrypto)
-   , StrictSeq (GovActionState (era StandardCrypto))
+   , CommitteeState (ConwayEra StandardCrypto)
+   , EnactState (ConwayEra StandardCrypto)
+   , StrictSeq (GovActionState (ConwayEra StandardCrypto))
    ]
 instance
   HasSimpleRep
@@ -1239,9 +1234,9 @@ instance
   where
   type
     SimpleRep (DRepPulser (ConwayEra StandardCrypto) Identity (RatifyState (ConwayEra StandardCrypto))) =
-      SOP '["DRepPulser" ::: DRepPulserTypes ConwayEra]
+      SOP '["DRepPulser" ::: DRepPulserTypes]
   toSimpleRep DRepPulser {..} =
-    inject @"DRepPulser" @'["DRepPulser" ::: DRepPulserTypes ConwayEra]
+    inject @"DRepPulser" @'["DRepPulser" ::: DRepPulserTypes]
       dpPulseSize
       dpUMap
       dpIndex
@@ -1254,7 +1249,7 @@ instance
       dpEnactState
       dpProposals
   fromSimpleRep rep =
-    algebra @'["DRepPulser" ::: DRepPulserTypes ConwayEra]
+    algebra @'["DRepPulser" ::: DRepPulserTypes]
       rep
       $ \ps um b sd spd dd ds ce cs es p ->
         DRepPulser ps um b sd spd dd ds ce cs es p testGlobals

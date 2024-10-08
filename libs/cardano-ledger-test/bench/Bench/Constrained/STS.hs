@@ -19,7 +19,7 @@ import Test.Cardano.Ledger.Constrained.Conway
 govEnv :: GovEnv (ConwayEra StandardCrypto)
 govEnv = genFromSpecWithSeed 10 30 (govEnvSpec @ConwayFn)
 
-singleProposalTreeSpec :: Specification ConwayFn ProposalTree
+singleProposalTreeSpec :: Specification ConwayFn (ProposalTree ConwayEra)
 singleProposalTreeSpec = constrained $ \ppupTree ->
   [ wellFormedChildren (lit SNothing) ppupTree
   , allGASInTree ppupTree $ \gas ->

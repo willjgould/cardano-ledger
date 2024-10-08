@@ -17,12 +17,8 @@
 module Cardano.Ledger.Babel.TxCert (
   -- BabelTxCert (..),
   BabelTxCertUpgradeError (..),
-  BabelDelegCert (..),
-  BabelGovCert (..),
   Delegatee (..),
   BabelEraTxCert,
-  fromShelleyDelegCert,
-  toShelleyDelegCert,
   -- getScriptWitnessBabelTxCert,
   pattern RegDepositTxCert,
   pattern UnRegDepositTxCert,
@@ -39,7 +35,7 @@ where
 import Cardano.Ledger.Babbage.Core
 import Cardano.Ledger.Babel.Era (BabelEra)
 import Cardano.Ledger.Babel.PParams ()
-import Cardano.Ledger.BaseTypes (StrictMaybe (..), kindObject)
+import Cardano.Ledger.BaseTypes (StrictMaybe (..))
 import Cardano.Ledger.Coin (Coin (..))
 import Cardano.Ledger.Conway.Governance (Anchor)
 import Cardano.Ledger.Conway.PParams (ConwayEraPParams, ppDRepDepositL)
@@ -65,19 +61,14 @@ import Cardano.Ledger.Credential (
 import Cardano.Ledger.Crypto
 import Cardano.Ledger.Keys (KeyHash, KeyRole (..))
 import Cardano.Ledger.Shelley.TxCert (
-  ShelleyDelegCert (..),
   shelleyTotalDepositsTxCerts,
   shelleyTotalRefundsTxCerts,
  )
 import Cardano.Ledger.Val (Val (..))
-import Control.DeepSeq (NFData)
-import Data.Aeson (ToJSON (..), (.=))
 import Data.Foldable (foldMap', foldl')
 import qualified Data.Map.Strict as Map
 import Data.Monoid (Sum (getSum))
-import GHC.Generics (Generic)
 import Lens.Micro
-import NoThunks.Class (NoThunks)
 
 data BabelTxCertUpgradeError
   = MirTxCertExpunged
@@ -292,114 +283,6 @@ pattern UpdateDRepTxCert cred mAnchor <- (getUpdateDRepTxCert -> Just (cred, mAn
   , UnRegDRepTxCert
   , UpdateDRepTxCert
   #-}
-
--- | Certificates for registration and delegation of stake to Pools and DReps. Comparing
--- to previous eras, there is now ability to:
---
--- * Register and delegate with a single certificate: `BabelRegDelegCert`
---
--- * Ability to delegate to DReps with `DelegVote` and `DelegStakeVote`
---
--- * Ability to specify the deposit amount. Deposits during registration and
---   unregistration in Babel are optional, which will change in the future era. They are
---   optional only for the smooth transition from Babbage to Babel. Validity of deposits
---   is checked by the @CERT@ rule.
-data BabelDelegCert c
-  = -- | Register staking credential. Deposit, when present, must match the expected deposit
-    -- amount specified by `ppKeyDepositL` in the protocol parameters.
-    BabelRegCert !(StakeCredential c) !(StrictMaybe Coin)
-  | -- | De-Register the staking credential. Deposit, if present, must match the amount
-    -- that was left as a deposit upon stake credential registration.
-    BabelUnRegCert !(StakeCredential c) !(StrictMaybe Coin)
-  | -- | Redelegate to another delegatee. Staking credential must already be registered.
-    BabelDelegCert !(StakeCredential c) !(Delegatee c)
-  | -- | This is a new type of certificate, which allows to register staking credential
-    -- and delegate within a single certificate. Deposit is required and must match the
-    -- expected deposit amount specified by `ppKeyDepositL` in the protocol parameters.
-    BabelRegDelegCert !(StakeCredential c) !(Delegatee c) !Coin
-  deriving (Show, Generic, Eq, Ord)
-
-instance NFData (BabelDelegCert c)
-
-instance NoThunks (BabelDelegCert c)
-
-instance Crypto c => ToJSON (BabelDelegCert c) where
-  toJSON = \case
-    BabelRegCert cred deposit ->
-      kindObject "RegCert" $
-        [ "credential" .= toJSON cred
-        , "deposit" .= toJSON deposit
-        ]
-    BabelUnRegCert cred refund ->
-      kindObject "UnRegCert" $
-        [ "credential" .= toJSON cred
-        , "refund" .= toJSON refund
-        ]
-    BabelDelegCert cred delegatee ->
-      kindObject "DelegCert" $
-        [ "credential" .= toJSON cred
-        , "delegatee" .= toJSON delegatee
-        ]
-    BabelRegDelegCert cred delegatee deposit ->
-      kindObject "RegDelegCert" $
-        [ "credential" .= toJSON cred
-        , "delegatee" .= toJSON delegatee
-        , "deposit" .= toJSON deposit
-        ]
-
-data BabelGovCert c
-  = BabelRegDRep !(Credential 'DRepRole c) !Coin !(StrictMaybe (Anchor c))
-  | BabelUnRegDRep !(Credential 'DRepRole c) !Coin
-  | BabelUpdateDRep !(Credential 'DRepRole c) !(StrictMaybe (Anchor c))
-  | BabelAuthCommitteeHotKey !(Credential 'ColdCommitteeRole c) !(Credential 'HotCommitteeRole c)
-  | BabelResignCommitteeColdKey !(Credential 'ColdCommitteeRole c) !(StrictMaybe (Anchor c))
-  deriving (Show, Generic, Eq, Ord)
-
-instance Crypto c => NFData (BabelGovCert c)
-
-instance NoThunks (BabelGovCert c)
-
-instance Crypto c => ToJSON (BabelGovCert c) where
-  toJSON = \case
-    BabelRegDRep dRep deposit anchor ->
-      kindObject "RegDRep" $
-        [ "dRep" .= toJSON dRep
-        , "deposit" .= toJSON deposit
-        , "anchor" .= toJSON anchor
-        ]
-    BabelUnRegDRep dRep refund ->
-      kindObject "UnRegDRep" $
-        [ "dRep" .= toJSON dRep
-        , "refund" .= toJSON refund
-        ]
-    BabelUpdateDRep dRep anchor ->
-      kindObject "UpdateDRep" $
-        [ "dRep" .= toJSON dRep
-        , "anchor" .= toJSON anchor
-        ]
-    BabelAuthCommitteeHotKey coldCred hotCred ->
-      kindObject "AuthCommitteeHotKey" $
-        [ "coldCredential" .= toJSON coldCred
-        , "hotCredential" .= toJSON hotCred
-        ]
-    BabelResignCommitteeColdKey coldCred anchor ->
-      kindObject "ResignCommitteeColdKey" $
-        [ "coldCredential" .= toJSON coldCred
-        , "anchor" .= toJSON anchor
-        ]
-
-fromShelleyDelegCert :: ShelleyDelegCert c -> BabelDelegCert c
-fromShelleyDelegCert = \case
-  ShelleyRegCert cred -> BabelRegCert cred SNothing
-  ShelleyUnRegCert cred -> BabelUnRegCert cred SNothing
-  ShelleyDelegCert cred poolId -> BabelDelegCert cred (DelegStake poolId)
-
-toShelleyDelegCert :: BabelDelegCert c -> Maybe (ShelleyDelegCert c)
-toShelleyDelegCert = \case
-  BabelRegCert cred SNothing -> Just $ ShelleyRegCert cred
-  BabelUnRegCert cred SNothing -> Just $ ShelleyUnRegCert cred
-  BabelDelegCert cred (DelegStake poolId) -> Just $ ShelleyDelegCert cred poolId
-  _ -> Nothing
 
 -- | Determine the total deposit amount needed from a TxBody.
 -- The block may (legitimately) contain multiple registration certificates

@@ -88,6 +88,7 @@ import Cardano.Ledger.Conway.Governance (
   VotingProcedures (..),
  )
 import Cardano.Ledger.Credential (Credential (..), credScriptHash)
+import Cardano.Ledger.Crypto (Crypto)
 import Cardano.Ledger.Plutus (
   PlutusWithContext (..),
   ScriptFailure (..),
@@ -131,7 +132,9 @@ data BatchData era -- or some better name
   = OldTransaction
   | NormalTransaction
   | Batch (TxId (EraCrypto era)) IsValid -- meaning batch valid
-  deriving (Eq)
+  deriving (Eq, Show, Generic)
+
+instance Crypto (EraCrypto era) => NFData (BatchData era)
 
 isTop :: EraTx era => BatchData era -> Tx era -> Bool
 isTop (Batch tid _) tx = tid == txIdTx tx
@@ -145,6 +148,11 @@ data BabelUtxoEnv era = BabelUtxoEnv
   , bueBatchData :: BatchData era
   }
   deriving (Generic)
+
+deriving instance Show (PParams era) => Show (BabelUtxoEnv era)
+deriving instance Eq (PParams era) => Eq (BabelUtxoEnv era)
+
+instance (Era era, NFData (PParams era)) => NFData (BabelUtxoEnv era)
 
 data BabelUtxosPredFailure era
   = -- | The 'isValid' tag on the transaction is incorrect. The tag given
