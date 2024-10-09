@@ -500,9 +500,7 @@ traceProp proof numTxInTrace gsize f = do
 
 forEachEpochTrace ::
   forall era prop.
-  Testable prop =>
-  -- , Reflect era
-
+  (Testable prop, Reflect era) =>
   Proof era ->
   Int ->
   GenSize ->

@@ -14,4 +14,4 @@ spec :: Spec
 spec = describe "Conway conformance tests" $ do
   withImpState @Conway $ do
     xit "UTXO" . replicateM_ 100 $ conformsToImpl @"UTXO" @ConwayFn
-    xit "GOV" . replicateM_ 100 $ conformsToImpl @"GOV" @ConwayFn
+    it "GOV" . replicateM_ 100 $ conformsToImpl @"GOV" @ConwayFn
