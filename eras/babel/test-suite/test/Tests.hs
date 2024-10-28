@@ -17,8 +17,7 @@ defaultTests :: TestTree
 defaultTests =
   testGroup
     "Babel tests"
-    [ --   Babbage.txInfoTests (Proxy @Babel)
-      -- , Babel.txInfoTests (Proxy @Babel)
-      -- ,
-      chainExamples
+    [ Babbage.txInfoTests (Proxy @Babel)
+    , Babel.txInfoTests (Proxy @Babel)
+    , chainExamples
     ]

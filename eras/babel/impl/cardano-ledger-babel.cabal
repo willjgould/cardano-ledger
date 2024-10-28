@@ -167,6 +167,9 @@ library testlib
         unliftio,
         cardano-ledger-mary,
         cardano-ledger-shelley-test,
+        -- plutus-core,
+        -- plutus-ledger-api,
+        plutus-tx,
 
 test-suite tests
     type:             exitcode-stdio-1.0

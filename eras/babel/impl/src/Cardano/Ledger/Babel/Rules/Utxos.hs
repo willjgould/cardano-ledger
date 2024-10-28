@@ -109,7 +109,7 @@ import Cardano.Ledger.UTxO (EraUTxO (..), ScriptsProvided (..), UTxO (UTxO, unUT
 import Cardano.Ledger.Val ((<->))
 import Cardano.Slotting.Time (SystemStart)
 import Control.DeepSeq (NFData)
-import Control.Monad (guard, when)
+import Control.Monad (guard)
 import Control.Monad.Trans.Reader (asks)
 import Control.State.Transition.Extended
 import Data.Foldable (Foldable (..))
@@ -146,13 +146,14 @@ data BabelUtxoEnv era = BabelUtxoEnv
   , bueCertState :: CertState era
   , bueRequiredBatchObservers :: Set.Set (ScriptHash (EraCrypto era))
   , bueBatchData :: BatchData era
+  , bueBatchScripts :: Map.Map (ScriptHash (EraCrypto era)) (Script era)
   }
   deriving (Generic)
 
-deriving instance Show (PParams era) => Show (BabelUtxoEnv era)
-deriving instance Eq (PParams era) => Eq (BabelUtxoEnv era)
+deriving instance (Show (Script era), Show (PParams era)) => Show (BabelUtxoEnv era)
+deriving instance (Eq (Script era), Eq (PParams era)) => Eq (BabelUtxoEnv era)
 
-instance (Era era, NFData (PParams era)) => NFData (BabelUtxoEnv era)
+instance (Era era, NFData (Script era), NFData (PParams era)) => NFData (BabelUtxoEnv era)
 
 data BabelUtxosPredFailure era
   = -- | The 'isValid' tag on the transaction is incorrect. The tag given
@@ -327,7 +328,7 @@ utxosTransition ::
   ) =>
   TransitionRule (EraRule "UTXOS" era)
 utxosTransition =
-  judgmentContext >>= \(TRC (BabelUtxoEnv _ _ _ _ batchData, _, tx)) -> do
+  judgmentContext >>= \(TRC (BabelUtxoEnv _ _ _ _ batchData _allScripts, _, tx)) -> do
     if validPath batchData tx
       then babelEvalScriptsTxValid
       else babelEvalScriptsTxInvalid
@@ -351,7 +352,7 @@ babelEvalScriptsTxValid ::
   ) =>
   TransitionRule (EraRule "UTXOS" era)
 babelEvalScriptsTxValid = do
-  TRC (BabelUtxoEnv _ pp certState _bobs _, utxos@(UTxOState utxo _ _ govState _ _), tx) <-
+  TRC (BabelUtxoEnv _ pp certState _bobs _ _allScripts, utxos@(UTxOState utxo _ _ govState _ _), tx) <-
     judgmentContext
   let txBody = tx ^. bodyTxL
 
@@ -437,7 +438,8 @@ babelEvalScriptsTxInvalid ::
   ) =>
   TransitionRule (EraRule "UTXOS" era)
 babelEvalScriptsTxInvalid = do
-  TRC (BabelUtxoEnv _ pp _ _bobs batchData, us@(UTxOState utxo _ fees _ _ _), tx) <- judgmentContext
+  TRC (BabelUtxoEnv _ pp _ _bobs batchData allScripts, us@(UTxOState utxo _ fees _ _ _), tx) <-
+    judgmentContext
   {- txb := txbody tx -}
   let txBody = tx ^. bodyTxL
   sysSt <- liftSTS $ asks systemStart
@@ -445,30 +447,29 @@ babelEvalScriptsTxInvalid = do
 
   () <- pure $! traceEvent invalidBegin ()
 
-  case collectPlutusScriptsWithContext batchData ei sysSt pp tx utxo of
-    Right sLst ->
-      {- sLst := collectTwoPhaseScriptInputs pp tx utxo -}
-      {- isValid tx = evalScripts tx sLst = False -}
-      whenFailureFree $
-        when2Phase $ case evalPlutusScripts tx sLst of
-          Passes _ ->
-            when (IsValid False == tx ^. isValidTxL) $
-              failBecause $
-                ValidationTagMismatch (tx ^. isValidTxL) PassedUnexpectedly
-          Fails ps fs -> do
-            mapM_ (tellEvent . SuccessfulPlutusScriptsEvent @era) (nonEmpty ps)
-            tellEvent (FailedPlutusScriptsEvent (scriptFailurePlutus <$> fs))
-    Left info -> failBecause (CollectErrors info)
-
-  () <- pure $! traceEvent invalidEnd ()
-
-  {- utxoKeep = txBody ^. collateralInputsTxBodyL ⋪ utxo -}
-  {- utxoDel  = txBody ^. collateralInputsTxBodyL ◁ utxo -}
-  let !(utxoKeep, utxoDel) = extractKeys (unUTxO utxo) (txBody ^. collateralInputsTxBodyL)
-      UTxO collouts = collOuts txBody
-      DeltaCoin collateralFees = collAdaBalance txBody utxoDel -- NEW to Babbage
   if isTop batchData tx
-    then
+    then do
+      case collectPlutusScriptsWithContext allScripts batchData ei sysSt pp tx utxo of
+        Right sLst ->
+          {- sLst := collectTwoPhaseScriptInputs pp tx utxo -}
+          {- isValid tx = evalScripts tx sLst = False -}
+          whenFailureFree $
+            when2Phase $ case evalPlutusScripts tx sLst of
+              Passes _ ->
+                failBecause $
+                  ValidationTagMismatch (IsValid (validPath batchData tx)) PassedUnexpectedly
+              Fails ps fs -> do
+                mapM_ (tellEvent . SuccessfulPlutusScriptsEvent @era) (nonEmpty ps)
+                tellEvent (FailedPlutusScriptsEvent (scriptFailurePlutus <$> fs))
+        Left info -> failBecause (CollectErrors info)
+
+      () <- pure $! traceEvent invalidEnd ()
+
+      {- utxoKeep = txBody ^. collateralInputsTxBodyL ⋪ utxo -}
+      {- utxoDel  = txBody ^. collateralInputsTxBodyL ◁ utxo -}
+      let !(utxoKeep, utxoDel) = extractKeys (unUTxO utxo) (txBody ^. collateralInputsTxBodyL)
+          UTxO collouts = collOuts txBody
+          DeltaCoin collateralFees = collAdaBalance txBody utxoDel -- NEW to Babbage
       pure $!
         us {- (collInputs txb ⋪ utxo) ∪ collouts tx -}
           { utxosUtxo = UTxO (Map.union utxoKeep collouts) -- NEW to Babbage
@@ -489,6 +490,7 @@ collectPlutusScriptsWithContext ::
   , BabelEraScript era
   , BabelEraTxBody era
   ) =>
+  Map.Map (ScriptHash (EraCrypto era)) (Script era) ->
   BatchData era ->
   EpochInfo (Either Text) ->
   SystemStart ->
@@ -496,14 +498,14 @@ collectPlutusScriptsWithContext ::
   Tx era ->
   UTxO era ->
   Either [CollectError era] [PlutusWithContext (EraCrypto era)]
-collectPlutusScriptsWithContext batchData epochInfo sysStart pp tx utxo =
+collectPlutusScriptsWithContext allScripts batchData epochInfo sysStart pp tx utxo =
   -- TODO: remove this whole complicated check when we get into Conway. It is much simpler
   -- to fail on a CostModel lookup in the `apply` function (already implemented).
   {- languages tx utxo ⊆ dom(costmdls pp) -}
   -- This check is checked when building the TxInfo using collectTwoPhaseScriptInputs, if it fails
   -- It raises 'NoCostModel' a construcotr of the predicate failure 'CollectError'.
   let missingCostModels = Set.filter (`Map.notMember` costModels) usedLanguages
-   in case guard (protVerMajor < natVersion @9) >> Set.lookupMin missingCostModels of
+   in case guard (protVerMajor < natVersion @11) >> Set.lookupMin missingCostModels of
         Just l -> Left [NoCostModel l]
         Nothing ->
           merge
@@ -520,12 +522,15 @@ collectPlutusScriptsWithContext batchData epochInfo sysStart pp tx utxo =
     protVerMajor = pvMajor (pp ^. ppProtocolVersionL)
 
     -- TODO WG: You really need a unit test for this.
+    -- TODO WG: I think this is a stand-in for `allowedLanguages` from the Agda spec
     costModels = costModelsValid $ pp ^. ppCostModelsL
 
     ScriptsProvided scriptsProvided = getScriptsProvided utxo tx
     AlonzoScriptsNeeded scriptsNeeded = hackyGetScriptsNeeded batchData utxo (tx ^. bodyTxL)
     neededPlutusScripts =
-      mapMaybe (\(sp, sh) -> (,) (sh, sp) <$> lookupPlutusScript scriptsProvided sh) scriptsNeeded
+      mapMaybe
+        (\(sp, sh) -> (,) (sh, sp) <$> lookupPlutusScript (scriptsProvided <> allScripts) sh)
+        scriptsNeeded
     usedLanguages = Set.fromList $ map (plutusScriptLanguage . snd) neededPlutusScripts
 
     getScriptWithRedeemer ((plutusScriptHash, plutusPurpose), plutusScript) =

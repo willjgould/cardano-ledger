@@ -142,6 +142,7 @@ data BabelSwapsEnv era = BabelSwapsEnv
   , babelLedgerAccount :: !AccountState
   , babelLedgerRequireBatchObservers :: !(Set (ScriptHash (EraCrypto era)))
   , babelLedgerBatchData :: !(BatchData era)
+  , babelLedgerBatchScripts :: !(Map.Map (ScriptHash (EraCrypto era)) (Script era))
   }
   deriving (Generic)
 
@@ -358,7 +359,8 @@ swapsTransition ::
   ) =>
   TransitionRule (someLEDGER era)
 swapsTransition = do
-  TRC (BabelSwapsEnv slot _txIx pp account bobs batchData, LedgerState utxoState certState, tx) <-
+  TRC
+    (BabelSwapsEnv slot _txIx pp account bobs batchData allScripts, LedgerState utxoState certState, tx) <-
     judgmentContext
 
   let actualTreasuryValue = account ^. asTreasuryL
@@ -436,7 +438,7 @@ swapsTransition = do
         -- stake credentials and DReps. The modified CertState
         -- (certStateAfterCERTS) has these already removed from its
         -- UMap.
-        ( BabelUtxoEnv @era slot pp certState bobs batchData
+        ( BabelUtxoEnv @era slot pp certState bobs batchData allScripts
         , utxoState'
         , tx
         )
@@ -512,7 +514,7 @@ renderDepositEqualsObligationViolation
   AssertionViolation
     { avSTS
     , avMsg
-    , avCtx = TRC (BabelSwapsEnv slot _ pp _ _bobs _batchData, _, tx)
+    , avCtx = TRC (BabelSwapsEnv slot _ pp _ _bobs _batchData _allScripts, _, tx)
     , avState
     } =
     case avState of

@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskellQuotes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -114,7 +115,7 @@ import Lens.Micro.Extras (view)
 import Lens.Micro.Mtl ((.=))
 import Lens.Micro.Type (Getting, Lens')
 import Prettyprinter (Doc)
-import Test.Cardano.Ledger.Alonzo.ImpTest (SomeSTSEvent (..))
+import Test.Cardano.Ledger.Alonzo.ImpTest (AlonzoEraImp, SomeSTSEvent (..))
 import qualified Test.Cardano.Ledger.Babbage.Imp as BabbageImp
 import qualified Test.Cardano.Ledger.Babel.Imp.EnactSpec as Enact
 import qualified Test.Cardano.Ledger.Babel.Imp.EpochSpec as Epoch
@@ -148,6 +149,10 @@ import Test.Cardano.Ledger.Shelley.Imp hiding (spec)
 --   withImpStateWithProtVer,
 --  )
 
+import qualified Cardano.Ledger.Binary.Encoding as PLC
+import Cardano.Ledger.Plutus.Data (Data (..))
+import Cardano.Ledger.Plutus.Language (Plutus (..), PlutusBinary (..), SLanguage (..))
+import qualified PlutusTx
 import Test.Cardano.Ledger.Babel.ImpTest
 import Test.Cardano.Ledger.Common hiding (shouldBeLeftExpr)
 import Test.Cardano.Ledger.Core.Binary.RoundTrip (roundTripEraExpectation)
@@ -155,7 +160,6 @@ import Test.Cardano.Ledger.Core.KeyPair (ByronKeyPair, KeyPair (..), mkAddr)
 import Test.Cardano.Ledger.Core.Utils (txInAt)
 import Test.Cardano.Ledger.Imp.Common (shouldBeLeftExpr)
 import qualified Test.Cardano.Ledger.Imp.Common as Imp
-import Test.Cardano.Ledger.Plutus.Examples (guessTheNumber3)
 import Test.Cardano.Ledger.Shelley.ImpTest (ImpTestEnv (..), ImpTestM, ImpTestState (..))
 import Test.Cardano.Ledger.Shelley.Utils (RawSeed (..), mkKeyPair)
 import Test.QuickCheck.Random (QCGen)
@@ -259,9 +263,18 @@ submitTxAnnZone n ixStart msg tx fulfills expectedErrors = do
       (Base.NonEmpty (PredicateFailure (EraRule "LEDGER" (BabelEra StandardCrypto))))
       [Tx (BabelEra StandardCrypto)] <-
     zone n ixStart tx fulfills
-  case expectedErrors of
-    [] -> void $ impAnn msg (Imp.expectRightDeepExpr res)
-    (e : es) -> impAnn msg (shouldBeLeftExpr res (e Base.:| es))
+  case (res, expectedErrors) of
+    (Right _, []) -> void $ impAnn msg (Imp.expectRightDeepExpr res)
+    (Left actualErrors, _) ->
+      -- Check if all expected errors are contained in actual errors
+      let actualErrorsList = toList actualErrors
+          missingErrors = filter (`notElem` actualErrorsList) expectedErrors
+       in if null missingErrors
+            then pure () -- All expected errors were found
+            else impAnn msg $ shouldBeLeftExpr res (head expectedErrors Base.:| tail expectedErrors)
+    (Right _, _ : _) ->
+      -- We expected errors but got success
+      impAnn msg $ shouldBeLeftExpr res (head expectedErrors Base.:| tail expectedErrors)
 
 submitFailingZone ::
   HasCallStack =>
@@ -405,6 +418,18 @@ zoneSpec = describe "SWAPS" $ do
         "Submit a transaction that consumes the script output"
         [requestTx]
         [fulfillTx]
+  it
+    "no repeats"
+    $ do
+      (requestTx, fulfillTx) <- makeTestTransactions
+
+      submitTxAnnZone
+        7
+        0
+        "Submit a transaction that consumes the script output"
+        [requestTx]
+        [fulfillTx, fulfillTx]
+        [injectFailure CheckSubsNotRepeated]
 
   it "missing is supplied by two transactions" $ do
     st <- gets impNES
@@ -491,7 +516,24 @@ zoneSpec = describe "SWAPS" $ do
       [requestTx1, requestTx2]
       [fulfillTx]
 
-  it "IsValid erroneously set to False: `PassedUnexpectedly`" $ do
+  it "IsValid erroneously set to False (topTx): `PassedUnexpectedly`" $ do
+    (requestTx, fulfillTx) <- makeTestTransactions
+
+    let requestTx' :: Tx (BabelEra StandardCrypto)
+        requestTx' =
+          requestTx
+            & ( isValidTxL
+                  .~ IsValid False
+              )
+    submitTxAnnZone
+      7
+      0
+      "Submit a transaction that consumes the script output"
+      [requestTx']
+      [fulfillTx]
+      [injectFailure (ValidationTagMismatch (IsValid False) PassedUnexpectedly)]
+
+  it "IsValid erroneously set to False (subTx): `PassedUnexpectedly`" $ do
     (requestTx, fulfillTx) <- makeTestTransactions
 
     let fulfillTx' :: Tx (BabelEra StandardCrypto)

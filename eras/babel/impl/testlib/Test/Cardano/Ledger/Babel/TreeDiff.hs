@@ -133,4 +133,4 @@ instance
   ToExpr (BabelTx era)
 
 instance ToExpr (BatchData era)
-instance ToExpr (PParamsHKD Identity era) => ToExpr (BabelUtxoEnv era)
+instance (ToExpr (Script era), ToExpr (PParamsHKD Identity era)) => ToExpr (BabelUtxoEnv era)

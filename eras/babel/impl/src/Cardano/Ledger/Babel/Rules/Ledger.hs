@@ -163,7 +163,7 @@ import qualified Cardano.Ledger.Shelley.Rules as Shelley
 import Cardano.Ledger.Shelley.UTxO (consumed, produced)
 import Cardano.Ledger.TxIn (TxIx)
 import Cardano.Ledger.UTxO (EraUTxO (ScriptsNeeded), balance, getMinFeeTxUtxo, txInsFilter)
-import Cardano.Ledger.Val (coin)
+import Cardano.Ledger.Val (Val ((<+>)), coin)
 import Control.DeepSeq (NFData)
 import Control.Monad (foldM, unless, when)
 import Control.Monad.RWS (asks)
@@ -172,7 +172,7 @@ import Control.State.Transition (validate)
 import Data.Bifunctor (Bifunctor (..))
 import Data.Foldable (Foldable (foldl'), sequenceA_, toList)
 import Data.Function ((&))
-import Data.List (sort)
+import Data.List (nub, sort)
 import Data.List.NonEmpty (NonEmpty (..), nonEmpty)
 import Data.Map (member)
 import qualified Data.Map as Map
@@ -455,55 +455,71 @@ ledgerTransition =
         let subTxs = getSubTxs tx
             subTxBodies = getSubTxBodies subTxs
             parentTxBody = tx ^. bodyTxL
-            parentTxId = txIdTx tx
-            batchData = mkBatchData tx subTxs parentTxId
+            balanceCorInputs txb = balance (UTxO $ unUTxO utxo `Map.restrictKeys` (txb ^. corInputsTxBodyL))
+            consumedValue =
+              foldMap
+                (\tx' -> consumed pp certState utxo tx' <+> balanceCorInputs tx')
+                (parentTxBody : subTxBodies)
+            producedValue = foldMap (produced pp certState) (parentTxBody : subTxBodies)
+            balanced = consumedValue == producedValue
+            batchData = mkBatchData balanced (tx : subTxs)
+            -- insOK = chkCorIns (body ∷ txBods) (body . TxBody.corInputs)
+            insOK = chkCorIns (parentTxBody : subTxBodies) (parentTxBody ^. corInputsTxBodyL)
+            -- insOutsOK = chkCorInsOuts (body ∷ txBods) (utx ∣ corInputs)
+            insOutsOK =
+              chkCorInsOuts
+                (parentTxBody : subTxBodies)
+                (UTxO $ unUTxO utxo `Map.restrictKeys` (parentTxBody ^. corInputsTxBodyL))
+            -- insInUTxO = chkInsInUTxO txBods (dom utx)
+            insInUTxO = chkInsInUTxO (parentTxBody : subTxBodies) (Map.keysSet (unUTxO utxo))
+            allScripts = foldr (\t l -> (t ^. witsTxL . scriptTxWitsL) `Map.union` l) mempty (tx : subTxs)
+
         {-   feesOK pp tx utxo   -}
         validate $ feesOK pp tx utxo
 
         -- we seem to NOT need this one: ∙ batchValid ≡ foldr (λ p q → q ∧ (p .Tx.isValid)) true txs --7
         -- consumed pp u (body ∷ txBods) ≡ produced pp u (body ∷ txBods)
 
-        let batchChecks =
-              validateValueNotConservedUTxO
-                pp
-                utxo
-                certState
-                (parentTxBody : subTxBodies)
-                <> chkCorIns -- chkCorIns (body ∷ txBods) (body .TxBody.corInputs )
-                  (parentTxBody : subTxBodies)
-                  (parentTxBody ^. corInputsTxBodyL)
-                -- chkCorInsOuts (body ∷ txBods) (utx ∣ corInputs)
-                <> chkCorInsOuts
-                  (parentTxBody : subTxBodies)
-                  (UTxO $ unUTxO utxo `Map.restrictKeys` (parentTxBody ^. corInputsTxBodyL))
+        -- insOK × insOutsOK × insInUTxO
+        runTest $
+          insOK -- chkCorIns (body ∷ txBods) (body .TxBody.corInputs )
+            <> insOutsOK -- chkCorInsOuts (body ∷ txBods) (utx ∣ corInputs)
+            <> insInUTxO -- chkInsInUTxO txBods (dom utx)
 
+        -- singleInvalid bd txs ≡ false → balanced
         runTest $
           whenFailure_
-            batchChecks
+            (failureUnless (singleInvalid batchData subTxs) CheckSingleInvalidFailure)
             ( \e ->
                 first
                   (<> e)
-                  (failureUnless (singleInvalid batchData subTxs) CheckSingleInvalidFailure)
+                  ( failureUnless
+                      balanced
+                      (ValueNotConservedUTxO consumedValue producedValue)
+                  )
             )
 
-        -- whenFailure
-        runTest $
-          chkSubTxsUniqueAndMatchingTopLevel tx
+        -- lengthˢ subTxIds ≡ length subTxs
+        runTest $ chkSubTxsNotRepeated tx
+        -- getIDs subTxs ≡ subTxIds
+        runTest $ chkSubTxsMatchingTopLevel tx
 
-        -- Assuming TX's size is its own size plus the sum of all its subTxs sizes
+        -- Assuming TX's size is its own size plus the sum of all its subTxs sizes.
+        -- txsize ≤ maxTxSize
         runTestOnSignal $ validateMaxTxSizeUTxO pp tx
-        -- chkInsInUTxO txBods (dom utx)
-        runTestOnSignal $ chkInsInUTxO (parentTxBody : subTxBodies) (Map.keysSet (unUTxO utxo))
-        -- sameEls subTxs (map (λ t → t .Tx'.body' .TxBody.txid) subTxBodies)
-        -- runTestOnSignal $
-        --   failureUnless
-        --     (sameEls subTxs (map (λ t → t ^. bodyTxL . txidTxBodyL) subTxBodies))
-        --     CheckSameElsFailure
+
         foldM
           ( \ !ls' (ix, tx') ->
               trans @(EraRule "SWAPS" era) $
                 TRC
-                  ( BabelSwapsEnv slot ix pp account (tx ^. bodyTxL . requireBatchObserversTxBodyL) batchData
+                  ( BabelSwapsEnv
+                      slot
+                      ix
+                      pp
+                      account
+                      (tx ^. bodyTxL . requireBatchObserversTxBodyL)
+                      batchData
+                      allScripts
                   , ls'
                   , tx'
                   )
@@ -511,11 +527,16 @@ ledgerTransition =
           ls
           $ zip [ixStart ..] (tx : subTxs)
   where
-    chkSubTxsUniqueAndMatchingTopLevel :: Tx era -> Test (BabelUtxoPredFailure era)
-    chkSubTxsUniqueAndMatchingTopLevel tx = failureUnless (sort txIdsInTopLevel == sort txIdsInBody) CheckSubTxsValidFailure
-      where
-        txIdsInTopLevel = tx ^.. subTxTxL . to strictMaybeToMaybe . _Just . folded . to txIdTx
-        txIdsInBody = tx ^.. bodyTxL . swapsTxBodyL . folded
+    chkSubTxsNotRepeated :: Tx era -> Test (BabelUtxoPredFailure era)
+    chkSubTxsNotRepeated tx = failureUnless (length (txIdsInTopLevel tx) == length (txIdsInBody tx)) CheckSubsNotRepeated
+    chkSubTxsMatchingTopLevel :: Tx era -> Test (BabelUtxoPredFailure era)
+    chkSubTxsMatchingTopLevel tx = failureUnless (sort (txIdsInTopLevel tx) == sort (txIdsInBody tx)) CheckSubTxsValidFailure
+    txIdsInTopLevel tx = tx ^.. subTxTxL . to strictMaybeToMaybe . _Just . folded . to txIdTx
+    txIdsInBody tx = tx ^.. bodyTxL . swapsTxBodyL . folded
+
+    -- all corInputs and inputs are the UTxO
+    -- chkInsInUTxO : List TxBody → ℙ TxIn → Set
+    -- chkInsInUTxO txbods uins = foldr (λ t l → (t .TxBody.txins ∪ t .TxBody.corInputs ⊆ uins) × l) (true ≡ true) txbods
     chkInsInUTxO :: [TxBody era] -> Set (TxIn (EraCrypto era)) -> Test (BabelUtxoPredFailure era)
     chkInsInUTxO txBodies uins = failureUnless check CheckInsInUtxoFailure
       where
@@ -527,24 +548,38 @@ ledgerTransition =
             )
             txBodies
     -- all corInputs exist in the UTxO set
+    -- chkCorIns : List TxBody → ℙ TxIn → Set
+    -- chkCorIns txbods cins = foldr (λ t l → (t .TxBody.txins ∩ cins ≢ ∅) × l) (true ≡ true) txbods
+    -- chkCorIns :: [TxBody era] -> Set (TxIn (EraCrypto era)) -> Test (BabelUtxoPredFailure era)
+    -- chkCorIns txBodies corInputs = failureUnless check CheckCorInsFailure
+    --   where
+    --     check =
+    --       all
+    --         ( \txBody ->
+    --             (txBody ^. corInputsTxBodyL) `Set.isSubsetOf` corInputs
+    --         )
+    --         txBodies
+
     chkCorIns :: [TxBody era] -> Set (TxIn (EraCrypto era)) -> Test (BabelUtxoPredFailure era)
     chkCorIns txBodies corInputs = failureUnless check CheckCorInsFailure
       where
         check =
           all
             ( \txBody ->
-                (txBody ^. corInputsTxBodyL) `Set.isSubsetOf` corInputs
+                (txBody ^. corInputsTxBodyL) `Set.intersection` corInputs == mempty -- TODO WG Check with Polina that this is right (since it changed from the above)
             )
             txBodies
     -- check ins in top-level tx correspond to spendOuts in the UTxO set
     -- could do this instead by forcing explicit indexing, ie spendOuts : TxIn - TxOut
+    -- chkCorInsOuts : List TxBody → UTxO → Set
+    -- chkCorInsOuts tbl uu = compareLists (foldr (_++_) [] (map (λ p → (map proj₂ (setToList (proj₁ (p .TxBody.spendOuts))))) tbl))  (map proj₂ (setToList (proj₁ uu)))
     chkCorInsOuts :: [TxBody era] -> UTxO era -> Test (BabelUtxoPredFailure era)
     chkCorInsOuts tbl uu = failureUnless check CheckCorInsOutsFailure
       where
         check =
           compareLists
-            (concatMap (\p -> sizedValue <$> toList (p ^. spendOutsTxBodyL)) tbl)
-            (toList (Map.elems $ unUTxO uu))
+            (concatMap (\p -> sizedValue <$> nub (toList (p ^. spendOutsTxBodyL))) tbl)
+            (nub (toList (Map.elems $ unUTxO uu)))
         -- do two lists have the same elements?
         -- TODO WG: Obviously this is ridiculously inefficient and will need to be done differently. I might not have time to come back to this though.
         compareLists :: [TxOut era] -> [TxOut era] -> Bool
@@ -565,11 +600,53 @@ getSubTxs tx = tx ^.. subTxTxL . to strictMaybeToMaybe . _Just . folded
 getSubTxBodies :: (Foldable f, EraTx era) => f (Tx era) -> [TxBody era]
 getSubTxBodies subTxs = subTxs ^.. folded . bodyTxL
 
-mkBatchData :: AlonzoEraTx era => Tx era -> [Tx era] -> TxId (EraCrypto era) -> BatchData era
-mkBatchData tx subTxs parentTxId =
-  if not (null subTxs)
-    then Batch parentTxId (IsValid (all (== IsValid True) ((tx : subTxs) ^.. folded . isValidTxL)))
-    else NormalTransaction
+-- Probably outdated, keeping for visibility to avoid having to dig back through commits
+-- mkBatchData :: AlonzoEraTx era => Tx era -> [Tx era] -> TxId (EraCrypto era) -> BatchData era
+-- mkBatchData tx subTxs parentTxId =
+--   if not (null subTxs)
+--     then Batch parentTxId (IsValid (all (== IsValid True) ((tx : subTxs) ^.. folded . isValidTxL)))
+--     else NormalTransaction
+
+normalInvalid :: AlonzoEraTx era => BatchData era -> [Tx era] -> Bool
+normalInvalid NormalTransaction [tx] = case tx ^. isValidTxL of
+  (IsValid x) -> not x
+normalInvalid _ _ = False
+
+mkBatchData :: (AlonzoEraTx era, BabelEraTxBody era) => Bool -> [Tx era] -> BatchData era
+mkBatchData _ [] = NormalTransaction -- should not happen
+mkBatchData isBalanced [tx] = if noNewFeatures isBalanced (tx ^. bodyTxL) then OldTransaction else NormalTransaction
+mkBatchData _ (tx : txs) =
+  Batch
+    (txIdTx tx)
+    (foldr (\p (IsValid q) -> IsValid (q && unIsValid (p ^. isValidTxL))) (IsValid True) (tx : txs))
+  where
+    unIsValid (IsValid b) = b
+
+noNewFeatures :: BabelEraTxBody era => Bool -> TxBody era -> Bool
+noNewFeatures isBalanced txb = case (
+                                      (
+                                        ( (isBalanced, Set.toList (txb ^. requireBatchObserversTxBodyL))
+                                        , toList (txb ^. spendOutsTxBodyL)
+                                        )
+                                      , toList (txb ^. corInputsTxBodyL)
+                                      )
+                                    , toList (txb ^. swapsTxBodyL)
+                                    ) of
+  ((((true, []), []), []), []) -> true
+  _ -> False
+
+-- if tx is balanced, and all new features are empty, this is true
+-- noNewFeatures : Bool → TxBody → Bool
+-- noNewFeatures isBalanced txb with ((((isBalanced , setToList (txb .TxBody.requireBatchObservers)) , setToList (proj₁ (txb .TxBody.spendOuts))) , setToList (txb .TxBody.corInputs  )) , setToList (txb .TxBody.subTxIds ))
+-- ... | ((((true , []) , [] ) , []) , []) = true
+-- ... | _ = false
+
+-- mkBatchData : Bool → List Tx → BatchData
+-- mkBatchData  _ [] = SingularTransaction -- should not happen
+-- mkBatchData isBalanced (tx ∷ []) with (noNewFeatures isBalanced (tx .Tx.body))
+-- ... | false = SingularTransaction
+-- ... | true  = OldTransaction
+-- mkBatchData _ (tx ∷ txs) = BatchParent (tx .Tx.body .TxBody.txid) (foldr (λ p q → q ∧ (p .Tx.isValid)) true (tx ∷ txs))
 
 singleInvalid :: AlonzoEraTx era => BatchData era -> [Tx era] -> Bool
 singleInvalid NormalTransaction [tx] = (tx ^. isValidTxL) /= IsValid True
@@ -617,127 +694,8 @@ feesOK pp tx u@(UTxO utxo) =
             validateTotalCollateral pp txBody utxoCollateral
         ]
 
--- judgmentContext
---   >>= \( TRC
---           ( UtxoEnv slotNo pParams accountState
---             , LedgerState utxoState certState
---             , txs :: Tx era
---             )
---         ) -> do
---       let ltx = Foldable.toList txs
---           lsV = init ltx
---           tx = last ltx -- TODO WG use safe head
---           collateralPct = collateralPercentage pParams
---           utxo@(UTxO u) = utxoState ^. utxosUtxoL
-
---       {- ((totSizeZone ltx) ≤ᵇ (Γ .LEnv.pparams .PParams.maxTxSize)) ≡ true -}
---       runTestOnSignal $
---         validateMaxTxSizeUTxO pParams ltx
---       -- ((coin (balance  (utxo ∣ tx .body .collateral)) * 100) ≥ᵇ sumCol ltx (Γ .LEnv.pparams .PParams.collateralPercentage)) ≡ true
-
---       -- TODO WG MIDGROUND ADD THESE CHECKS
---       -- the sum total of the fees of all transactions in the zone is at least the sum of the required fees for all transactions in the zone (note that there are changes to fee and collateral requirements, discussed below)
---       if all chkIsValid txs -- SWAPS-V
---         then do
---           -- ∪_{tx ∈ txs} txins(tx) ⊆ dom utxo
---           runTestOnSignal $
---             failureUnless
---               (all (`member` u) $ Foldable.toList =<< ltx ^.. folded . bodyTxL . inputsTxBodyL)
---               DependsOnZoneOutput
-
---           {- totExunits tx ≤ maxTxExUnits pp -}
---           runTestOnSignal $ validateExUnitsTooBigUTxO pParams ltx
-
---           {- collForPrec ltx (Γ .LEnv.pparams .PParams.collateralPercentage) utxo (sumCol ltx (Γ .LEnv.pparams .PParams.collateralPercentage)) ≡ just _ -}
---           let res =
---                 collForPrec
---                   (reverse ltx)
---                   collateralPct
---                   utxo
---                   (unCoin $ sumCol ltx collateralPct)
---           case res of
---             Left e -> runTestOnSignal $ failure e
---             _ -> pure ()
-
---           {- collInUTxO ltx utxo -}
---           runTestOnSignal $
---             failureUnless (collInUTxO ltx utxo) CollInUtxoValidFailure
-
---           {- consumed pp utxo txb = produced pp poolParams txb -}
---           runTest $
---             validateValueNotConservedUTxO pParams utxo certState (Foldable.toList (txs ^.. folded . bodyTxL))
-
---           utxoState' <-
---             trans @(EraRule "UTXOW" era) $
---               TRC
---                 ( UtxoEnv slotNo pParams accountState
---                 , utxoState
---                 , txs
---                 )
---           pure (LedgerState utxoState' certState)
---         else -- SWAPS-N
---         do
---           -- Check that only the last transaction is invalid
---           runTestOnSignal $
---             failureUnless (chkExactlyLastInvalid ltx) MoreThanOneInvalidTransaction
-
---           {- collForPrec ltx (Γ .LEnv.pparams .PParams.collateralPercentage) utxo (sumCol ltx (Γ .LEnv.pparams .PParams.collateralPercentage)) ≡ just _ -}
---           let res =
---                 collForPrec
---                   (reverse (lsV ++ [tx]))
---                   collateralPct
---                   utxo
---                   (unCoin $ sumCol (lsV ++ [tx]) collateralPct)
-
---           case res of
---             Left e -> runTestOnSignal $ failure e
---             _ -> pure ()
-
---           {- collInUTxO (lsV ++ [ tx ]) utxo -}
---           runTestOnSignal $
---             failureUnless
---               (collInUTxO (lsV ++ [tx]) utxo)
---               CollInUtxoInvalidFailure
-
---           babelEvalScriptsTxInvalid @era
--- where
---   -- chkIsValid tx = tx .Tx.isValid ≡ true
---   chkIsValid :: Tx era -> Bool
---   chkIsValid tx = tx ^. isValidTxL == IsValid True
---   sizeTx :: Tx era -> Integer
---   sizeTx t = t ^. sizeTxF
---   totSizeZone :: [Tx era] -> Integer
---   totSizeZone z = sum (map sizeTx z)
---   validateMaxTxSizeUTxO ::
---     PParams era ->
---     [Tx era] ->
---     Test (BabelUtxoPredFailure era)
---   validateMaxTxSizeUTxO pp z =
---     failureUnless (zoneSize <= maxTxSize) $ MaxTxSizeUTxO zoneSize maxTxSize
---     where
---       maxTxSize = toInteger (pp ^. ppMaxTxSizeL)
---       zoneSize = totSizeZone z
---   validateExUnitsTooBigUTxO ::
---     PParams era ->
---     [Tx era] ->
---     Test (BabelUtxoPredFailure era)
---   validateExUnitsTooBigUTxO pp txs =
---     failureUnless (pointWiseExUnits (<=) totalExUnits maxTxExUnits) $
---       ExUnitsTooBigUTxO maxTxExUnits totalExUnits
---     where
---       maxTxExUnits = pp ^. ppMaxTxExUnitsL
---       -- This sums up the ExUnits for all embedded Plutus Scripts anywhere in the zone:
---       totalExUnits = Foldable.foldl' (<>) mempty $ fmap totExUnits txs
---   chkExactlyLastInvalid :: [Tx era] -> Bool
---   chkExactlyLastInvalid txs = case reverse txs of
---     (l : txs') -> (l ^. isValidTxL == IsValid False) && all ((== IsValid True) . (^. isValidTxL)) txs'
---     [] -> True
---   collateralPercentage pParams = toInteger $ pParams ^. ppCollateralPercentageL
---   sumCol :: [Tx era] -> Integer -> Coin
---   sumCol tb cp = Coin $ foldr (\tx c -> c + (unCoin (tx ^. bodyTxL . feeTxBodyL) * cp)) 0 tb
-
 validateValueNotConservedUTxO ::
-  (EraUTxO era, Value era ~ MaryValue (EraCrypto era)) =>
+  (EraUTxO era, Value era ~ MaryValue (EraCrypto era), BabelEraTxBody era) =>
   PParams era ->
   UTxO era ->
   CertState era ->
@@ -758,83 +716,16 @@ validateValueNotConservedUTxO pp utxo certState txs =
     (consumedValue == producedValue)
     $ ValueNotConservedUTxO consumedValue producedValue
   where
-    consumedValue = foldMap (consumed pp certState utxo) txs -- <+> the corinputs thing
+    -- consumed :: PParams → UTxOState → List TxBody → Value
+    -- consumed pp st txbls
+    --   =  foldr  (λ txb → (let open TxBody in balance (st .utxo ∣ txb .txins)
+    --   +  txb .mint
+    --   +  inject (depositRefunds pp st txb)
+    --   +  balance (st .utxo ∣ txb .corInputs)) +_) (inject 0) txbls
+    balanceCorInputs txb = balance (UTxO $ unUTxO utxo `Map.restrictKeys` (txb ^. corInputsTxBodyL))
+
+    consumedValue = foldMap (\tx -> consumed pp certState utxo tx <+> balanceCorInputs tx) txs -- <+> the corinputs thing
     producedValue = foldMap (produced pp certState) txs
-
-babelEvalScriptsTxInvalid ::
-  forall era.
-  ( EraRule "LEDGER" era ~ BabelLEDGER era
-  , ConwayEraTxBody era
-  , AlonzoEraTx era
-  , Environment (EraRule "SWAPS" era) ~ BabelSwapsEnv era
-  , State (EraRule "SWAPS" era) ~ LedgerState era
-  , Signal (EraRule "SWAPS" era) ~ Tx era
-  , Embed (EraRule "SWAPS" era) (BabelLEDGER era)
-  , ScriptsNeeded era ~ AlonzoScriptsNeeded era
-  , AlonzoEraUTxO era
-  , EraPlutusContext era
-  , EraRuleFailure "LEDGER" era ~ BabelSwapsPredFailure era
-  , InjectRuleFailure "LEDGER" BabelUtxosPredFailure era
-  , InjectRuleFailure "LEDGER" BabelUtxoPredFailure era
-  , Value era ~ MaryValue (EraCrypto era)
-  , Eq (PredicateFailure (EraRule "UTXO" era))
-  , Show (PredicateFailure (EraRule "UTXO" era))
-  ) =>
-  TransitionRule (BabelSWAPS era)
-babelEvalScriptsTxInvalid = undefined
-
--- do
---   TRC
---     ( UtxoEnv _slotNo pp _accountState
---       , LedgerState us@(UTxOState utxo _ fees _ _ _) certState
---       , txs :: Tx era
---       ) <-
---     judgmentContext
---   -- TODO WG: Is the list last first or last...last (Probably last last)
---   let tx = last (Foldable.toList txs) -- TODO WG use safe head
---       txBody = tx ^. bodyTxL
-
---   -- {- txb := txbody tx -}
---   sysSt <- liftSTS $ asks systemStart
---   ei <- liftSTS $ asks epochInfo
-
---   () <- pure $! traceEvent invalidBegin ()
-
---   -- TODO WG Should this script collection even happen here (obviously collat needs collecting but is this too much?)?
---   {- TODO WG:
---     I think you actually need a different function that collects Plutus scripts from
---     ALL transactions, but just using the collateral for the last one? Or evals scripts from ALL txs? Or something like that?
---     Basically, yes, the last TX is the one that failed, but we need to collect collat for all the other ones, too. -}
---   case collectPlutusScriptsWithContext ei sysSt pp tx utxo of
---     Right sLst ->
---       {- sLst := collectTwoPhaseScriptInputs pp tx utxo -}
---       {- isValid tx = evalScripts tx sLst = False -}
---       whenFailureFree $
---         when2Phase $ case evalPlutusScripts tx sLst of
---           Passes _ ->
---             failBecause $
---               injectFailure @"SWAPS" $
---                 ValidationTagMismatch (tx ^. isValidTxL) PassedUnexpectedly
---           Fails ps fs -> do
---             mapM_ (tellEvent . ZoneSuccessfulPlutusScriptsEvent @era) (nonEmpty ps)
---             tellEvent (ZoneFailedPlutusScriptsEvent @era (scriptFailurePlutus <$> fs))
---     Left info -> failBecause (injectFailure $ CollectErrors info)
---   () <- pure $! traceEvent invalidEnd ()
-
---   {- utxoKeep = txBody ^. collateralInputsTxBodyL ⋪ utxo -}
---   {- utxoDel  = txBody ^. collateralInputsTxBodyL ◁ utxo -}
---   let !(utxoKeep, utxoDel) = extractKeys (unUTxO utxo) (txBody ^. collateralInputsTxBodyL)
---       UTxO collouts = collOuts txBody
---       DeltaCoin collateralFees = collAdaBalance txBody utxoDel
---   pure $!
---     LedgerState
---       us {- (collInputs txb ⋪ utxo) ∪ collouts tx -}
---         { utxosUtxo = UTxO (Map.union utxoKeep collouts)
---         , {- fees + collateralFees -}
---           utxosFees = fees <> Coin collateralFees
---         , utxosStakeDistr = updateStakeDistribution pp (utxosStakeDistr us) (UTxO utxoDel) (UTxO collouts)
---         }
---       certState
 
 -- check that collateral in each transaction in the list is enough to cover the preceeding ones
 collForPrec ::
@@ -847,16 +738,6 @@ collForPrec ::
 collForPrec [] _ _ 0 = Right ()
 collForPrec [] _ _ c = Left $ CollForPrecValidFailure (Coin c)
 collForPrec (t : l) cp u c =
-  -- trace
-  --   ( "\n\n Collateral we need: "
-  --       <> show c
-  --       <> "\n\n Collateral we have: "
-  --       <> show (unCoin (coin (balance (txInsFilter u (t ^. bodyTxL . collateralInputsTxBodyL)))))
-  --       <> "\n\n Num TXs: "
-  --       <> show (length (t : l))
-  --       <> "\n\n Collateral Percentage: "
-  --       <> show cp
-  --   )
   let collateralPossessed = unCoin (coin (balance (txInsFilter u (t ^. bodyTxL . collateralInputsTxBodyL))))
    in do
         unless (c <= collateralPossessed) (Left $ CollForPrecValidFailure (Coin $ c - collateralPossessed))

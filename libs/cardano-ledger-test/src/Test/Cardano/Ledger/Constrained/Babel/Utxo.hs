@@ -39,7 +39,8 @@ utxoEnvSpec =
        uePParams
        _ueCertState
        _ueBatchObservers
-       _ueBatchData ->
+       _ueBatchData
+       _ueBatchScripts ->
           [ satisfies uePParams pparamsSpec
           , match uePParams $ \cpp ->
               match cpp $

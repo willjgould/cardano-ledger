@@ -123,7 +123,6 @@ import qualified PlutusLedgerApi.V1 as PV1
 import qualified PlutusLedgerApi.V2 as PV2
 import qualified PlutusLedgerApi.V3 as PV3
 import qualified PlutusTx.AssocMap as PMap
-import qualified PlutusTx.Eq
 
 instance Crypto c => EraPlutusContext (ConwayEra c) where
   type ContextError (ConwayEra c) = ConwayContextError (ConwayEra c)
@@ -669,9 +668,6 @@ transProtVer (ProtVer major minor) =
 
 -- ==========================
 -- Instances
-
-instance PlutusTx.Eq.Eq PV3.ScriptPurpose where
-  (==) = undefined -- TODO WG (I don't want to go and recalculate the hashes of my forked Plutus repo)
 
 instance Crypto c => ToPlutusData (PParamsUpdate (ConwayEra c)) where
   toPlutusData = pparamUpdateToData conwayPParamMap

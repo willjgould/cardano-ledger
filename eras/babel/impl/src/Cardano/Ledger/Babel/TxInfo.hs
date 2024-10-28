@@ -935,9 +935,6 @@ transProtVerV4 (ProtVer major minor) =
 -- ==========================
 -- Instances
 
-instance PlutusTx.Eq.Eq PV4.ScriptPurpose where
-  (==) = undefined -- TODO WG (I don't want to go and recalculate the hashes of my forked Plutus repo)
-
 instance Crypto c => ToPlutusData (PParamsUpdate (BabelEra c)) where
   toPlutusData = pparamUpdateToData conwayPParamMap
   fromPlutusData = pparamUpdateFromData conwayPParamMap
